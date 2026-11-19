@@ -11,6 +11,7 @@ import {
   PASSIVE_GOLD_START_TICK,
   calculateHeroKillGold,
   calculateHeroKillExperience,
+  HERO_KILL_EXPERIENCE_SCALE,
   getExperienceShareFactor,
   getLoggedGoldBalance,
   getPassiveGoldTotalAtTick,
