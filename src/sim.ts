@@ -987,7 +987,7 @@ function applyPlayerCommand(world: Simulation, command?: PlayerCommand): void {
       if (target) performAttack(world, hero, target);
     }
   }
-  if (!command.skill || command.skill === 'F') return;
+  if (!command.skill) return;
   if (command.skill === 'G' || command.skill === 'B') {
     if (moving || command.attack) return;
     startPlayerChannel(world, hero, command.skill === 'G' ? 'heal' : 'recall');

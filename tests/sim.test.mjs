@@ -431,6 +431,7 @@ test('space attack damages the nearest in-range enemy using the normal damage ca
   hero.attackRange = 2;
   hero.critChance = 0;
   target.position = { x: 1, y: 0 };
+  target.gold = 0;
   target.hp = target.maxHp;
   const expected = calculateDamage(hero, target);
   stepSimulation(world, 1, { attack: true });
@@ -490,7 +491,7 @@ test('G completes after five seconds and restores 30 percent of maximum health a
 test('B completes after five seconds and returns the player hero to the home crystal', () => {
   const world = createSimulation(127, 'duelist');
   const hero = entity(world, 'blue-hero-duelist');
-  hero.position = { x: 0, y: 0 };
+  hero.position = { ...entity(world, 'blue-crystal').position };
   for (const unit of world.entities) {
     if (unit.kind === 'hero' && unit.id !== hero.id) {
       unit.alive = false;
