@@ -1,4 +1,4 @@
-import { EQUIPMENT, FIXED_STEP_SECONDS, HERO_SKILLS, purchaseEquipment } from './sim.ts';
+import { EQUIPMENT, FIXED_STEP_SECONDS, HERO_SKILLS, getLoggedGoldBalance, purchaseEquipment } from './sim.ts';
 import type { EquipmentDefinition, EquipmentId, HeroRole, PlayerSkillKey, SimEntity, Simulation } from './sim.ts';
 
 export type EquipmentAvailability = 'available' | 'insufficient-gold' | 'inventory-full' | 'already-owned';
@@ -308,7 +308,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
         onPurchase?.(false);
         return;
       }
-      const availability = getEquipmentAvailability(hero, item);
+      const availability = getEquipmentAvailability({ gold: getLoggedGoldBalance(world, hero.id), inventory: hero.inventory }, item);
       if (availability !== 'available') {
         shopFeedback.textContent = availability === 'insufficient-gold'
           ? `金币不足：${item.name} 需要 ${item.cost}。`
@@ -341,7 +341,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
         if (!hero || !refs) continue;
         refs.kills.textContent = String(hero.kills);
         refs.deaths.textContent = String(hero.deaths);
-        refs.gold.textContent = formatGold(hero.gold);
+        refs.gold.textContent = formatGold(getLoggedGoldBalance(world, hero.id));
         refs.row.classList.toggle('is-selected', team === 'blue' && role === selectedHeroRole);
       }
     }
@@ -352,7 +352,9 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
     for (const item of Object.values(EQUIPMENT)) {
       const button = shopButtons.get(item.id);
       if (!button) continue;
-      const availability = hero ? getEquipmentAvailability(hero, item) : 'inventory-full';
+      const availability = hero
+        ? getEquipmentAvailability({ gold: getLoggedGoldBalance(world, hero.id), inventory: hero.inventory }, item)
+        : 'inventory-full';
       button.disabled = availability === 'insufficient-gold';
       button.textContent = availability === 'available'
         ? `购买 · ${item.cost}`
@@ -371,7 +373,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
     const selectedHero = world.entities.find((entity) => entity.id === getPlayerHeroId(selectedHeroRole));
     blueScore.textContent = String(heroes.filter((hero) => hero.team === 'blue').reduce((sum, hero) => sum + hero.kills, 0));
     redScore.textContent = String(heroes.filter((hero) => hero.team === 'red').reduce((sum, hero) => sum + hero.kills, 0));
-    teamGold.textContent = formatGold(selectedHero?.gold ?? 0);
+    teamGold.textContent = selectedHero ? formatGold(getLoggedGoldBalance(world, selectedHero.id)) : '0';
     gameTime.textContent = formatGameTime(world.tick);
     updateShop(world);
     updateScoreboard(world);

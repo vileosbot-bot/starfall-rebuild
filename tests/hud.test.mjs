@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EQUIPMENT, createSimulation } from '../src/sim.ts';
+import { EQUIPMENT, createSimulation, getLoggedGoldBalance, purchaseEquipment, stepSimulation } from '../src/sim.ts';
 import {
   formatGameTime,
   formatGold,
@@ -14,8 +14,9 @@ import {
   getChannelHudState,
 } from '../src/hud.ts';
 
-test('game time formats zero, one minute, and ten minutes from fixed simulation ticks', () => {
+test('game time formats zero, ten seconds, one minute, and ten minutes from fixed simulation ticks', () => {
   assert.equal(formatGameTime(0), '00:00');
+  assert.equal(formatGameTime(200), '00:10');
   assert.equal(formatGameTime(1200), '01:00');
   assert.equal(formatGameTime(12000), '10:00');
 });
@@ -107,4 +108,30 @@ test('channel HUD exposes progress and remaining time for G and B', () => {
     remainingSeconds: 4.5,
   });
   assert.equal(getChannelHudState({ channel: null }), null);
+});
+
+
+test('HUD wallet balance is read from the per-hero gold transaction ledger', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const hero = world.entities.find((unit) => unit.id === 'blue-hero-vanguard');
+  assert.ok(hero);
+  assert.equal(hero.gold, 300);
+  assert.equal(getLoggedGoldBalance(world, hero.id), 300);
+
+  stepSimulation(world, 200);
+  assert.equal(hero.gold, 302);
+  assert.equal(getLoggedGoldBalance(world, hero.id), hero.gold);
+
+  assert.equal(purchaseEquipment(world, hero.id, 'ember-blade'), true);
+  assert.equal(hero.gold, 122);
+  assert.equal(getLoggedGoldBalance(world, hero.id), hero.gold);
+  const purchase = world.events.find((event) =>
+    event.type === 'gold-transaction' && event.recipientId === hero.id &&
+    event.incomeSource === 'equipment-purchase'
+  );
+  assert.ok(purchase);
+  assert.equal(purchase.amount, -180);
+  assert.equal(purchase.balanceAfter, 122);
+  assert.equal(typeof purchase.tick, 'number');
+  assert.equal(typeof purchase.simSeconds, 'number');
 });

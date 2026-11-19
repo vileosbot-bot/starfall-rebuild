@@ -7,6 +7,14 @@ import {
   HERO_PURCHASE_ORDER,
   HERO_SKILLS,
   WAVE_INTERVAL_TICKS,
+  FIRST_WAVE_TICK,
+  PASSIVE_GOLD_START_TICK,
+  calculateHeroKillGold,
+  calculateHeroKillExperience,
+  getExperienceShareFactor,
+  getLoggedGoldBalance,
+  getPassiveGoldTotalAtTick,
+  getTowerTeamGoldReward,
   calculateDamage,
   createSimulation,
   purchaseEquipment,
@@ -53,10 +61,13 @@ test('physical and magic damage use their matching defense values', () => {
   assert.equal(magic, 30);
 });
 
-test('hero kills grant gold and experience and can trigger a level-up', () => {
+test('hero kills grant calibrated gold, first blood, and level-scaled shared experience', () => {
   const world = createSimulation(7);
   const killer = entity(world, 'blue-hero-vanguard');
   const victim = entity(world, 'red-hero-vanguard');
+  for (const teammate of world.entities.filter((unit) =>
+    unit.kind === 'hero' && unit.team === 'blue' && unit.id !== killer.id
+  )) teammate.position = { x: -50, y: 50 };
   killer.position = { x: 0, y: 0 };
   killer.gold = 20;
   killer.experience = 90;
@@ -69,27 +80,56 @@ test('hero kills grant gold and experience and can trigger a level-up', () => {
 
   assert.equal(victim.alive, false);
   assert.equal(killer.kills, 1);
-  assert.equal(killer.gold, 100);
+  assert.equal(killer.gold, 148);
   assert.equal(killer.level, 2);
-  assert.equal(killer.experience, 110);
+  assert.equal(killer.experience, 108);
   assert.ok(world.events.some((event) => event.type === 'unit-died' && event.targetId === victim.id));
+  assert.ok(world.events.some((event) =>
+    event.type === 'gold-transaction' && event.incomeSource === 'hero-kill' &&
+    event.recipientId === killer.id && event.amount === 88
+  ));
+  assert.ok(world.events.some((event) =>
+    event.type === 'gold-transaction' && event.incomeSource === 'first-blood' &&
+    event.recipientId === killer.id && event.amount === 40
+  ));
+  assert.equal(getLoggedGoldBalance(world, killer.id), killer.gold);
 });
 
-test('minion waves spawn on the first step and every 500 ticks thereafter', () => {
+test('minion waves start at tick 200, recur every 600 ticks, and stagger the local lane roster', () => {
   const world = createSimulation(11);
-  assert.equal(WAVE_INTERVAL_TICKS, 500);
+  assert.equal(FIRST_WAVE_TICK, 200);
+  assert.equal(WAVE_INTERVAL_TICKS, 600);
+  assert.equal(FIXED_STEP_SECONDS, 0.05);
+  assert.equal(1 / FIXED_STEP_SECONDS, 20);
+  assert.equal(FIRST_WAVE_TICK * FIXED_STEP_SECONDS, 10);
+  assert.equal(PASSIVE_GOLD_START_TICK * FIXED_STEP_SECONDS, 10);
+  assert.equal(WAVE_INTERVAL_TICKS * FIXED_STEP_SECONDS, 30);
+  stepSimulation(world, FIRST_WAVE_TICK);
+  assert.equal(world.tick, 200);
+  assert.equal(world.waveCount, 0);
+  assert.equal(world.entities.filter((item) => item.kind === 'minion').length, 0);
+
   stepSimulation(world, 1);
   assert.equal(world.waveCount, 1);
-  assert.equal(world.entities.filter((item) => item.kind === 'minion').length, 10);
+  assert.equal(world.entities.filter((item) => item.kind === 'minion').length, 2);
+  assert.ok(world.events.some((event) => event.type === 'wave-spawned' && event.tick === 200));
 
-  stepSimulation(world, 499);
-  assert.equal(world.tick, 500);
+  stepSimulation(world, 24);
+  const firstWave = world.entities.filter((item) => item.kind === 'minion');
+  assert.equal(firstWave.length, 6);
+  assert.equal(firstWave.filter((item) => item.minionType === 'melee').length, 4);
+  assert.equal(firstWave.filter((item) => item.minionType === 'ranged').length, 2);
+  const blueSpawnTicks = world.events
+    .filter((event) => event.type === 'minion-spawned' && event.team === 'blue' && event.targetId?.includes('-minion-1-'))
+    .map((event) => event.tick);
+  assert.deepEqual(blueSpawnTicks, [200, 212, 224]);
+
+  stepSimulation(world, 575);
+  assert.equal(world.tick, 800);
   assert.equal(world.waveCount, 1);
-
   stepSimulation(world, 1);
   assert.equal(world.waveCount, 2);
-  assert.equal(world.entities.filter((item) => item.kind === 'minion').length, 20);
-  assert.equal(world.events.filter((event) => event.type === 'wave-spawned').length, 4);
+  assert.ok(world.events.some((event) => event.type === 'wave-spawned' && event.tick === 800));
 });
 
 test('destroying the exposed crystal ends the simulation immediately', () => {
@@ -150,6 +190,7 @@ test('living heroes move by a deterministic fixed-step amount', () => {
 
 test('towers automatically attack enemy minions inside their range', () => {
   const world = createSimulation(23);
+  world.tick = FIRST_WAVE_TICK;
   stepSimulation(world, 1);
   const tower = entity(world, 'blue-tower-2');
   const target = world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
@@ -168,6 +209,7 @@ test('towers automatically attack enemy minions inside their range', () => {
 
 test('outer tower is nearer the lane center and is selected before the inner tower', () => {
   const world = createSimulation(24);
+  world.tick = FIRST_WAVE_TICK;
   stepSimulation(world, 1);
   const outer = entity(world, 'red-tower-1');
   const inner = entity(world, 'red-tower-2');
@@ -275,6 +317,7 @@ test('six-item catalog contains two original items in each category', () => {
 
 test('AI executes the lowest-health nearby enemy hero before minions, otherwise farms the nearest minion', () => {
   const executeWorld = createSimulation(59);
+  executeWorld.tick = FIRST_WAVE_TICK;
   stepSimulation(executeWorld, 1);
   const executor = entity(executeWorld, 'blue-hero-vanguard');
   const lowHero = entity(executeWorld, 'red-hero-vanguard');
@@ -295,6 +338,7 @@ test('AI executes the lowest-health nearby enemy hero before minions, otherwise 
   assert.ok(executeWorld.events.some((event) => event.type === 'attack' && event.sourceId === executor.id && event.targetId === lowHero.id));
 
   const farmWorld = createSimulation(61);
+  farmWorld.tick = FIRST_WAVE_TICK;
   stepSimulation(farmWorld, 1);
   const farmer = entity(farmWorld, 'blue-hero-vanguard');
   const healthyHero = entity(farmWorld, 'red-hero-vanguard');
@@ -333,15 +377,36 @@ test('purchase validation rejects insufficient gold, a full three-item inventory
   assert.equal(purchaseEquipment(world, dead.id, 'gale-fang'), false);
 });
 
-test('passive gold is granted every 20 completed ticks', () => {
+test('passive gold starts at tick 200, uses cumulative rounding, and is paid during death', () => {
   const world = createSimulation(43);
   const hero = entity(world, 'blue-hero-guardian');
   hero.position = { x: -13.5, y: 0 };
   hero.aiState = 'heal';
   hero.gold = 0;
-  stepSimulation(world, AI_RULES.passiveGoldIntervalTicks);
-  assert.equal(hero.gold, AI_RULES.passiveGoldAmount);
-  assert.equal(world.events.filter((event) => event.type === 'passive-gold' && event.sourceId === hero.id).length, 1);
+  hero.alive = false;
+  hero.hp = 0;
+
+  assert.equal(getPassiveGoldTotalAtTick(199), 0);
+  assert.equal(getPassiveGoldTotalAtTick(200), 2);
+  assert.equal(getPassiveGoldTotalAtTick(210), 3);
+  assert.equal(getPassiveGoldTotalAtTick(220), 4);
+  stepSimulation(world, PASSIVE_GOLD_START_TICK - 1);
+  assert.equal(hero.gold, 0);
+  stepSimulation(world, 1);
+  assert.equal(hero.gold, 2);
+  stepSimulation(world, 10);
+  assert.equal(hero.gold, 3);
+  stepSimulation(world, 10);
+  assert.equal(hero.gold, 4);
+  const passiveEvents = world.events.filter((event) =>
+    event.type === 'passive-gold' && event.sourceId === hero.id
+  );
+  assert.deepEqual(passiveEvents.map((event) => [event.tick, event.amount, event.simSeconds]), [
+    [200, 2, 10],
+    [210, 1, 10.5],
+    [220, 1, 11],
+  ]);
+  assert.equal(getLoggedGoldBalance(world, hero.id), hero.gold);
 });
 
 test('hero does not attack a tower without a friendly minion tanking inside tower range', () => {
@@ -360,6 +425,7 @@ test('hero does not attack a tower without a friendly minion tanking inside towe
 
 test('hero attacks a tower only while a friendly minion is inside its range', () => {
   const world = createSimulation(53);
+  world.tick = FIRST_WAVE_TICK;
   const hero = entity(world, 'blue-hero-ranger');
   const tower = entity(world, 'red-tower-1');
   hero.position = { x: 2, y: 0 };
@@ -619,3 +685,231 @@ test('player command sequences are deterministic for the same seed', () => {
   };
   assert.deepEqual(run(), run());
 });
+
+
+test('starting wallets, transaction ledger, and local equipment prices are locked', () => {
+  const world = createSimulation(20261120);
+  const heroes = world.entities.filter((unit) => unit.kind === 'hero');
+  assert.equal(heroes.length, 10);
+  assert.ok(heroes.every((hero) => hero.gold === 300));
+  assert.equal(world.events.filter((event) =>
+    event.type === 'gold-transaction' && event.incomeSource === 'starting-gold'
+  ).length, 10);
+  assert.deepEqual({
+    'ember-blade': EQUIPMENT['ember-blade'].cost,
+    'gale-fang': EQUIPMENT['gale-fang'].cost,
+    'star-core': EQUIPMENT['star-core'].cost,
+    'moon-prism': EQUIPMENT['moon-prism'].cost,
+    'tide-ward': EQUIPMENT['tide-ward'].cost,
+    'bastion-plate': EQUIPMENT['bastion-plate'].cost,
+  }, {
+    'ember-blade': 180,
+    'gale-fang': 240,
+    'star-core': 190,
+    'moon-prism': 250,
+    'tide-ward': 160,
+    'bastion-plate': 230,
+  });
+});
+
+test('hero bounty formula locks base, streak adjustment, death adjustment, clamp, and first blood', () => {
+  assert.deepEqual(calculateHeroKillGold(0, 0, false), {
+    base: 88, streakBonus: 0, deathPenalty: 0, raw: 88, bounty: 88, firstBloodBonus: 0, total: 88,
+  });
+  assert.deepEqual(calculateHeroKillGold(2, 1, true), {
+    base: 88, streakBonus: 44, deathPenalty: 11, raw: 121, bounty: 121, firstBloodBonus: 40, total: 161,
+  });
+  assert.equal(calculateHeroKillGold(20, 0, false).bounty, 208);
+  assert.equal(calculateHeroKillGold(0, 20, false).bounty, 44);
+  assert.deepEqual(
+    [1, 2, 3, 4, 5].map((count) => getExperienceShareFactor(count)),
+    [1, 0.70, 0.52, 0.42, 0.36],
+  );
+  assert.equal(HERO_KILL_EXPERIENCE_SCALE, 0.7);
+  assert.equal(calculateHeroKillExperience(1, 1), 118);
+  assert.equal(calculateHeroKillExperience(1, 3), 61);
+  assert.equal(calculateHeroKillExperience(2, 3), 71);
+});
+
+test('every third wave adds siege minions and an inner-tower break adds a lane super minion', () => {
+  const siegeWorld = createSimulation(31);
+  siegeWorld.tick = FIRST_WAVE_TICK + WAVE_INTERVAL_TICKS * 2;
+  siegeWorld.waveCount = 2;
+  stepSimulation(siegeWorld, 37);
+  const siegeMinions = siegeWorld.entities.filter((unit) => unit.kind === 'minion' && unit.minionType === 'siege');
+  assert.equal(siegeWorld.waveCount, 3);
+  assert.equal(siegeMinions.length, 2);
+  assert.ok(siegeMinions.every((unit) => unit.maxHp === 420 && unit.attackDamage === 34 &&
+    unit.bountyGold === 42 && unit.bountyExperience === 40));
+
+  const superWorld = createSimulation(32);
+  const redInnerTower = entity(superWorld, 'red-tower-2');
+  redInnerTower.alive = false;
+  redInnerTower.hp = 0;
+  superWorld.tick = FIRST_WAVE_TICK;
+  stepSimulation(superWorld, 37);
+  const superMinions = superWorld.entities.filter((unit) => unit.kind === 'minion' && unit.minionType === 'super');
+  assert.equal(superMinions.length, 1);
+  assert.equal(superMinions[0].team, 'blue');
+  assert.equal(superMinions[0].maxHp, 945);
+  assert.equal(superMinions[0].attackDamage, 46);
+  assert.equal(superMinions[0].bountyGold, 47);
+  assert.equal(superMinions[0].bountyExperience, 45);
+});
+
+test('minion last-hit keeps its bounty and shares a 35 percent pool with nearby allied heroes', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  world.tick = FIRST_WAVE_TICK;
+  stepSimulation(world, 1);
+  const killer = entity(world, 'blue-hero-vanguard');
+  const ally = entity(world, 'blue-hero-ranger');
+  const target = world.entities.find((unit) =>
+    unit.kind === 'minion' && unit.team === 'red' && unit.minionType === 'melee' && unit.alive
+  );
+  assert.ok(target);
+  for (const unit of world.entities) {
+    if (![killer.id, ally.id, target.id].includes(unit.id)) {
+      unit.alive = false;
+      unit.hp = 0;
+      unit.respawnTicks = 0;
+    }
+  }
+  killer.alive = true;
+  ally.alive = true;
+  killer.position = { x: 0, y: 0 };
+  ally.position = { x: 10, y: 0 };
+  target.position = { x: 0.5, y: 0 };
+  target.hp = 1;
+  killer.gold = 0;
+  ally.gold = 0;
+  killer.attackRange = 2;
+  killer.attackDamage = 2000;
+  killer.critChance = 0;
+  killer.cooldownRemaining = 0;
+
+  stepSimulation(world, 1, { attack: true });
+
+  assert.equal(target.alive, false);
+  assert.equal(killer.gold, 18);
+  assert.equal(ally.gold, 6);
+  assert.equal(killer.experience, 17);
+  assert.equal(ally.experience, 17);
+  assert.equal(getLoggedGoldBalance(world, killer.id), killer.gold);
+  assert.equal(getLoggedGoldBalance(world, ally.id), ally.gold);
+  const minionTransactions = world.events.filter((event) =>
+    event.type === 'gold-transaction' && event.targetId === target.id &&
+    (event.incomeSource === 'minion-last-hit' || event.incomeSource === 'minion-share')
+  );
+  assert.deepEqual(minionTransactions
+    .map((event) => [event.recipientId, event.amount, event.experienceAmount])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))), [
+    [ally.id, 6, 17],
+    [killer.id, 18, 17],
+  ]);
+  assert.ok(minionTransactions.every((event) => typeof event.tick === 'number' &&
+    typeof event.simSeconds === 'number' && typeof event.incomeSource === 'string'));
+});
+
+test('hero kill pays 80 percent of actual adjusted bounty to assists and shares level-scaled experience', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const killer = entity(world, 'blue-hero-vanguard');
+  const victim = entity(world, 'red-hero-vanguard');
+  const assistantA = entity(world, 'blue-hero-arcanist');
+  const assistantB = entity(world, 'blue-hero-ranger');
+  for (const unit of world.entities) {
+    if (![killer.id, victim.id, assistantA.id, assistantB.id].includes(unit.id)) {
+      unit.alive = false;
+      unit.hp = 0;
+      unit.respawnTicks = 0;
+    }
+  }
+  killer.position = { x: 0, y: 0 };
+  victim.position = { x: 1, y: 0 };
+  assistantA.position = { x: 8, y: 0 };
+  assistantB.position = { x: 10, y: 0 };
+  killer.gold = 0;
+  assistantA.gold = 0;
+  assistantB.gold = 0;
+  killer.killStreak = 2;
+  victim.deathStreak = 1;
+  killer.attackRange = 2;
+  killer.attackDamage = 2000;
+  killer.critChance = 0;
+  killer.cooldownRemaining = 0;
+  victim.hp = 1;
+  world.damageContributions[victim.id] = {
+    [assistantA.id]: 30,
+    [assistantB.id]: 20,
+  };
+
+  stepSimulation(world, 1, { attack: true });
+
+  assert.equal(victim.alive, false);
+  assert.equal(killer.gold, 161);
+  assert.equal(assistantA.gold, 64);
+  assert.equal(assistantB.gold, 64);
+  assert.equal(killer.experience, 61);
+  assert.equal(assistantA.experience, 61);
+  assert.equal(assistantB.experience, 61);
+  assert.equal(assistantA.assists, 1);
+  assert.equal(assistantB.assists, 1);
+  assert.equal(world.firstBloodAwarded, true);
+  assert.equal(getLoggedGoldBalance(world, killer.id), killer.gold);
+  assert.equal(getLoggedGoldBalance(world, assistantA.id), assistantA.gold);
+  assert.equal(getLoggedGoldBalance(world, assistantB.id), assistantB.gold);
+  assert.ok(world.events.some((event) =>
+    event.incomeSource === 'hero-kill' && event.recipientId === killer.id && event.amount === 121
+  ));
+  assert.ok(world.events.some((event) =>
+    event.incomeSource === 'first-blood' && event.recipientId === killer.id && event.amount === 40
+  ));
+  assert.ok(world.events.some((event) =>
+    event.incomeSource === 'hero-assist' && event.recipientId === assistantA.id && event.amount === 64
+  ));
+  assert.ok(world.events.some((event) =>
+    event.incomeSource === 'hero-assist' && event.recipientId === assistantB.id && event.amount === 64
+  ));
+});
+
+test('tower destruction pays every teammate by layer, a 40 gold hero last-hit bonus, and 100 shared experience', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const attacker = entity(world, 'blue-hero-vanguard');
+  const tower = entity(world, 'red-tower-1');
+  for (const unit of world.entities) {
+    if (unit.kind === 'hero' && unit.team === 'blue' && unit.id !== attacker.id) {
+      unit.position = { x: -40, y: 40 };
+      unit.aiState = 'heal';
+    } else if (unit.team === 'red' && unit.kind !== 'tower') {
+      unit.alive = false;
+      unit.hp = 0;
+      unit.respawnTicks = 0;
+    } else if (unit.kind === 'minion' || unit.kind === 'monster') {
+      unit.alive = false;
+      unit.hp = 0;
+      unit.respawnTicks = 0;
+    }
+  }
+  attacker.position = { x: 0, y: 0 };
+  attacker.attackRange = 2;
+  attacker.attackDamage = 2000;
+  attacker.critChance = 0;
+  tower.position = { x: 0, y: 0 };
+  tower.hp = 1;
+
+  stepSimulation(world, 1, { attack: true });
+
+  const blueHeroes = world.entities.filter((unit) => unit.kind === 'hero' && unit.team === 'blue');
+  assert.equal(tower.alive, false);
+  assert.deepEqual([getTowerTeamGoldReward(1), getTowerTeamGoldReward(2), getTowerTeamGoldReward(3)], [48, 56, 64]);
+  assert.ok(blueHeroes.every((hero) => hero.experience === 20));
+  assert.ok(blueHeroes.every((hero) => hero.gold === (hero.id === attacker.id ? 388 : 348)));
+  const teamRewards = world.events.filter((event) =>
+    event.type === 'gold-transaction' && event.incomeSource === 'tower-team' && event.targetId === tower.id
+  );
+  assert.equal(teamRewards.length, 5);
+  assert.ok(teamRewards.every((event) => event.amount === 48 && event.experienceAmount === 20));
+  assert.ok(world.events.some((event) =>
+    event.incomeSource === 'tower-last-hit' && event.recipientId === attacker.id && event.amount === 40
+  ));
+});
+
