@@ -10,6 +10,8 @@ if (!app) {
   throw new Error('Missing #app mount element.');
 }
 
+const appElement: HTMLDivElement = app;
+
 const required = <T extends HTMLElement>(selector: string): T => {
   const element = app.querySelector<T>(selector);
   if (!element) throw new Error(`Missing app element: ${selector}`);
@@ -179,7 +181,7 @@ function startMatch(role: HeroRole): void {
   hud.setHint('');
   hud.update(world);
 
-  renderScene = createRenderScene(app);
+  renderScene = createRenderScene(appElement);
   renderScene.syncSimulation(world);
   renderScene.start();
   unlockAudio();
