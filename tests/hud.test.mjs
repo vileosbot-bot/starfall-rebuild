@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EQUIPMENT } from '../src/sim.ts';
+import { EQUIPMENT, createSimulation } from '../src/sim.ts';
 import {
   formatGameTime,
   formatGold,
   getEquipmentAvailability,
+  getPlayerHeroId,
+  purchaseEquipmentForSelectedHero,
+  createMatchSession,
+  HERO_ROLES,
   SKILL_HINTS,
 } from '../src/hud.ts';
 
@@ -30,4 +34,50 @@ test('shop availability covers enough gold, insufficient gold, full inventory, a
 test('every skill and action key has a non-empty placeholder hint', () => {
   assert.deepEqual(SKILL_HINTS.map((entry) => entry.key), ['Q', 'E', 'R', 'F', 'G', 'B', 'Space']);
   assert.ok(SKILL_HINTS.every((entry) => entry.text.trim().length > 0));
+});
+
+test('hero selection binds the player shop target to each selected blue hero', () => {
+  assert.deepEqual(HERO_ROLES.map((role) => getPlayerHeroId(role)), [
+    'blue-hero-vanguard',
+    'blue-hero-ranger',
+    'blue-hero-arcanist',
+    'blue-hero-duelist',
+    'blue-hero-guardian',
+  ]);
+  assert.equal(getPlayerHeroId('ranger'), 'blue-hero-ranger');
+});
+
+test('returning to the menu clears the active match and the next selection starts a fresh world', () => {
+  const session = createMatchSession();
+  const firstWorld = session.enter('ranger', () => ({ tick: 240, gold: 640 }));
+  assert.equal(session.selectedRole, 'ranger');
+  assert.equal(session.world, firstWorld);
+  assert.equal(session.world.tick, 240);
+  assert.throws(() => session.enter('guardian', () => ({ tick: 0, gold: 320 })), /already active/);
+
+  assert.equal(session.leave(), firstWorld);
+  assert.equal(session.world, null);
+  assert.equal(session.selectedRole, null);
+
+  const nextWorld = session.enter('guardian', () => ({ tick: 0, gold: 320 }));
+  assert.notEqual(nextWorld, firstWorld);
+  assert.equal(session.selectedRole, 'guardian');
+  assert.equal(session.world.tick, 0);
+  assert.equal(session.world.gold, 320);
+});
+
+test('manual purchase charges and equips the selected non-vanguard hero only', () => {
+  const world = createSimulation(20261119);
+  const ranger = world.entities.find((entity) => entity.id === 'blue-hero-ranger');
+  const vanguard = world.entities.find((entity) => entity.id === 'blue-hero-vanguard');
+  assert.ok(ranger);
+  assert.ok(vanguard);
+  const rangerGoldBefore = ranger.gold;
+  const vanguardGoldBefore = vanguard.gold;
+
+  assert.equal(purchaseEquipmentForSelectedHero(world, 'ranger', 'ember-blade'), true);
+  assert.deepEqual(ranger.inventory, ['ember-blade']);
+  assert.equal(ranger.gold, rangerGoldBefore - EQUIPMENT['ember-blade'].cost);
+  assert.deepEqual(vanguard.inventory, []);
+  assert.equal(vanguard.gold, vanguardGoldBefore);
 });

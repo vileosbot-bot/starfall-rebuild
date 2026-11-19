@@ -12,6 +12,46 @@
       #app { position: relative; isolation: isolate; min-height: 420px; }
       #app > canvas { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; }
       #hud-root { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+      #hud-root[hidden], .hero-select-screen[hidden] { display: none; }
+      .hero-select-screen {
+        position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; overflow: auto;
+        padding: clamp(16px, 4vw, 44px);
+        background: radial-gradient(ellipse at 50% 0%, rgba(41, 91, 124, .52), transparent 58%), #101820;
+      }
+      .hero-select-shell {
+        width: min(1080px, 100%); padding: clamp(20px, 3vw, 36px);
+        border: 1px solid rgba(160, 199, 232, .24); border-radius: 22px;
+        background: linear-gradient(145deg, rgba(20, 37, 52, .97), rgba(8, 17, 27, .98));
+        box-shadow: 0 28px 90px rgba(0, 0, 0, .48);
+      }
+      .hero-select-kicker { color: #83bce8; font-size: 10px; font-weight: 800; letter-spacing: .24em; }
+      .hero-select-title { margin: 12px 0 8px; color: #f2f7ff; font-size: clamp(34px, 5vw, 54px); letter-spacing: .08em; }
+      .hero-select-description { max-width: 620px; margin: 0; color: #a8bbcf; font-size: 13px; line-height: 1.8; }
+      .hero-select-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 26px; }
+      .hero-select-card {
+        display: flex; min-width: 0; min-height: 176px; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+        padding: 16px 9px; border: 1px solid rgba(143, 184, 222, .2); border-radius: 14px;
+        background: rgba(255, 255, 255, .035); color: #edf4ff; cursor: pointer; text-align: center;
+        transition: border-color .15s ease, background .15s ease, transform .15s ease;
+      }
+      .hero-select-card:hover { transform: translateY(-2px); border-color: rgba(128, 196, 255, .58); background: rgba(80, 139, 184, .12); }
+      .hero-select-card[aria-pressed="true"] {
+        border-color: #80c4ff; background: rgba(65, 139, 195, .2);
+        box-shadow: inset 0 0 0 1px rgba(128, 196, 255, .28), 0 0 28px rgba(69, 154, 218, .16);
+      }
+      .hero-select-card canvas { width: 76px; height: 76px; border-radius: 16px; }
+      .hero-select-card strong { font-size: 14px; }
+      .hero-select-card small { color: #9fb4ca; font-size: 10px; line-height: 1.5; }
+      .hero-select-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 24px; }
+      #selected-hero-summary { margin: 0; color: #a9bdd1; font-size: 12px; }
+      #enter-match, .return-menu-button {
+        padding: 10px 18px; border: 1px solid rgba(128, 196, 255, .58); border-radius: 9px;
+        background: linear-gradient(135deg, #367eae, #285a82); color: #f4f9ff; font-size: 12px; font-weight: 800; cursor: pointer;
+      }
+      #enter-match:disabled { border-color: rgba(130, 145, 164, .18); background: rgba(120, 132, 148, .12); color: #718095; cursor: not-allowed; }
+      .return-menu-button { pointer-events: auto; margin-left: auto; padding: 8px 12px; background: rgba(58, 126, 185, .18); font-size: 10px; }
+      .hero-card.is-selected { border-color: #80c4ff; background: rgba(65, 139, 195, .18); }
+      .score-row.is-selected { border-radius: 5px; background: rgba(73, 143, 199, .18); color: #f1f8ff; }
       .hud-top {
         position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
         display: flex; align-items: center; gap: 12px; min-width: min(680px, calc(100vw - 28px));
@@ -94,6 +134,7 @@
       }
       #audio-state { color: #ffd879; }
       @media (max-width: 900px) {
+        .hero-select-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .hero-roster { left: 10px; top: 84px; flex-wrap: wrap; max-width: 280px; }
         .hero-card { min-width: 104px; }
         .controls { right: 10px; bottom: 12px; max-width: 125px; line-height: 1.6; }
@@ -101,6 +142,12 @@
         .skillbar { bottom: 62px; }
       }
       @media (max-width: 600px) {
+        .hero-select-shell { padding: 18px; }
+        .hero-select-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+        .hero-select-card { min-height: 148px; padding: 12px 7px; }
+        .hero-select-card canvas { width: 64px; height: 64px; }
+        .hero-select-actions { align-items: stretch; flex-direction: column; }
+        #enter-match { width: 100%; }
         .hud-top { top: 8px; gap: 6px; padding: 8px; }
         .team-score, .clock-block, .gold-block { min-width: 56px; }
         .team-score strong, .clock-block strong, .gold-block strong { font-size: 17px; }
@@ -117,23 +164,57 @@
   </head>
   <body>
     <div id="app">
-      <div id="hud-root">
+      <main id="hero-select-screen" class="hero-select-screen" aria-labelledby="hero-select-title">
+        <div class="hero-select-shell">
+          <div class="hero-select-kicker">STARFALL · TACTICAL ARENA</div>
+          <h1 id="hero-select-title" class="hero-select-title">星陨战纪</h1>
+          <p class="hero-select-description">五位英雄，五种战场风格。选择你的队伍核心，在三路战场中推进防线，摧毁敌方水晶。</p>
+          <div class="hero-select-grid" role="group" aria-label="选择出战英雄">
+            <button class="hero-select-card" type="button" data-hero-role="vanguard" aria-pressed="false">
+              <canvas width="64" height="64" data-avatar="vanguard" aria-label="Vanguard 原创头像"></canvas>
+              <strong>Vanguard</strong><small>前卫 · 坚实前排</small>
+            </button>
+            <button class="hero-select-card" type="button" data-hero-role="ranger" aria-pressed="false">
+              <canvas width="64" height="64" data-avatar="ranger" aria-label="Ranger 原创头像"></canvas>
+              <strong>Ranger</strong><small>游侠 · 远程压制</small>
+            </button>
+            <button class="hero-select-card" type="button" data-hero-role="arcanist" aria-pressed="false">
+              <canvas width="64" height="64" data-avatar="arcanist" aria-label="Arcanist 原创头像"></canvas>
+              <strong>Arcanist</strong><small>术士 · 法术输出</small>
+            </button>
+            <button class="hero-select-card" type="button" data-hero-role="duelist" aria-pressed="false">
+              <canvas width="64" height="64" data-avatar="duelist" aria-label="Duelist 原创头像"></canvas>
+              <strong>Duelist</strong><small>决斗者 · 灵活近战</small>
+            </button>
+            <button class="hero-select-card" type="button" data-hero-role="guardian" aria-pressed="false">
+              <canvas width="64" height="64" data-avatar="guardian" aria-label="Guardian 原创头像"></canvas>
+              <strong>Guardian</strong><small>守护者 · 坚韧防护</small>
+            </button>
+          </div>
+          <div class="hero-select-actions">
+            <p id="selected-hero-summary" aria-live="polite">选择一位英雄，确认后进入战场。</p>
+            <button id="enter-match" type="button" disabled>进入对局</button>
+          </div>
+        </div>
+      </main>
+      <div id="hud-root" hidden>
         <header class="hud-top" aria-label="对局状态">
           <div class="team-score"><small>BLUE KILLS</small><strong id="blue-score" class="blue-text">0</strong></div>
           <span class="score-divider">:</span>
           <div class="team-score"><small>RED KILLS</small><strong id="red-score" class="red-text">0</strong></div>
           <div class="clock-block"><small>TIME</small><strong id="game-time">00:00</strong></div>
-          <div class="gold-block"><small>BLUE GOLD</small><strong id="team-gold" class="gold-text">1,600</strong></div>
+          <div class="gold-block"><small>PLAYER GOLD</small><strong id="team-gold" class="gold-text">0</strong></div>
+          <button id="return-menu" class="return-menu-button" type="button">返回菜单</button>
         </header>
         <section class="hero-roster" aria-label="己方英雄头像">
-          <div class="hero-card"><canvas width="64" height="64" data-avatar="vanguard" aria-label="Vanguard 原创头像"></canvas><div><span>Vanguard</span><small>前卫</small></div></div>
-          <div class="hero-card"><canvas width="64" height="64" data-avatar="ranger" aria-label="Ranger 原创头像"></canvas><div><span>Ranger</span><small>游侠</small></div></div>
-          <div class="hero-card"><canvas width="64" height="64" data-avatar="arcanist" aria-label="Arcanist 原创头像"></canvas><div><span>Arcanist</span><small>术士</small></div></div>
-          <div class="hero-card"><canvas width="64" height="64" data-avatar="duelist" aria-label="Duelist 原创头像"></canvas><div><span>Duelist</span><small>决斗者</small></div></div>
-          <div class="hero-card"><canvas width="64" height="64" data-avatar="guardian" aria-label="Guardian 原创头像"></canvas><div><span>Guardian</span><small>守护者</small></div></div>
+          <div class="hero-card" data-hero-role="vanguard"><canvas width="64" height="64" data-avatar="vanguard" aria-label="Vanguard 原创头像"></canvas><div><span>Vanguard</span><small>前卫</small></div></div>
+          <div class="hero-card" data-hero-role="ranger"><canvas width="64" height="64" data-avatar="ranger" aria-label="Ranger 原创头像"></canvas><div><span>Ranger</span><small>游侠</small></div></div>
+          <div class="hero-card" data-hero-role="arcanist"><canvas width="64" height="64" data-avatar="arcanist" aria-label="Arcanist 原创头像"></canvas><div><span>Arcanist</span><small>术士</small></div></div>
+          <div class="hero-card" data-hero-role="duelist"><canvas width="64" height="64" data-avatar="duelist" aria-label="Duelist 原创头像"></canvas><div><span>Duelist</span><small>决斗者</small></div></div>
+          <div class="hero-card" data-hero-role="guardian"><canvas width="64" height="64" data-avatar="guardian" aria-label="Guardian 原创头像"></canvas><div><span>Guardian</span><small>守护者</small></div></div>
         </section>
         <section id="shop-panel" class="panel" hidden aria-label="装备商店">
-          <div class="panel-heading"><h2>装备商店</h2><small>按 P 关闭 · 购买给蓝方 1 号英雄</small></div>
+          <div class="panel-heading"><h2>装备商店</h2><small>按 P 关闭 · 购买给 <span id="shop-target-name">—</span></small></div>
           <div id="shop-items"></div>
           <p id="shop-feedback" aria-live="polite">选择装备查看购买结果。</p>
         </section>
