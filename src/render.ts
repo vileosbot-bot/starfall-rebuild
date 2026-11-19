@@ -250,7 +250,7 @@ export function createRenderScene(container: HTMLElement) {
       terrainGeometries.forEach((geometry) => geometry.dispose());
       terrainMaterials.forEach((material) => material.dispose());
       groundGrid.geometry.dispose();
-      if (Array.isArray(groundGrid.material)) groundGrid.material.forEach((material) => material.dispose());
+      if (Array.isArray(groundGrid.material)) groundGrid.material.forEach((material: THREE.Material) => material.dispose());
       else groundGrid.material.dispose();
       renderer.dispose();
       renderer.domElement.remove();
