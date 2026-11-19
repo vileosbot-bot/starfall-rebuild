@@ -427,10 +427,10 @@ test('space attack damages the nearest in-range enemy using the normal damage ca
   const world = createSimulation(103, 'vanguard');
   const hero = entity(world, 'blue-hero-vanguard');
   const target = entity(world, 'red-hero-vanguard');
-  hero.position = { x: 0, y: 0 };
+  hero.position = { x: 0, y: 9 };
   hero.attackRange = 2;
   hero.critChance = 0;
-  target.position = { x: 1, y: 0 };
+  target.position = { x: 1, y: 9 };
   target.gold = 0;
   target.hp = target.maxHp;
   const expected = calculateDamage(hero, target);
