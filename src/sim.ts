@@ -12,6 +12,11 @@ export type HeroBehavior = 'push' | 'farm' | 'retreat' | 'heal';
 export type MinionType = 'melee' | 'ranged';
 export type MonsterType = 'sentinel' | 'brute';
 export type EquipmentId = 'ember-blade' | 'gale-fang' | 'star-core' | 'moon-prism' | 'tide-ward' | 'bastion-plate';
+export type PlayerSkillKey = 'Q' | 'E' | 'R' | 'F' | 'G' | 'B';
+export type PlayerChannelKind = 'heal' | 'recall';
+export interface PlayerCommand { enabled?: boolean; moveX?: number; moveY?: number; attack?: boolean; skill?: PlayerSkillKey; }
+export interface PlayerChannel { kind: PlayerChannelKind; totalTicks: number; remainingTicks: number; }
+export interface SkillDefinition { key: 'Q' | 'E' | 'R'; name: string; effect: 'damage' | 'area-damage' | 'heal' | 'dash-strike'; manaCost: number; cooldownTicks: number; range: number; radius?: number; multiplier?: number; healRatio?: number; }
 export type SimEventType =
   | 'wave-spawned'
   | 'attack'
@@ -23,7 +28,12 @@ export type SimEventType =
   | 'crystal-destroyed'
   | 'item-purchased'
   | 'passive-gold'
-  | 'ai-state-changed';
+  | 'ai-state-changed'
+  | 'player-moved'
+  | 'player-skill'
+  | 'player-channel-started'
+  | 'player-channel-cancelled'
+  | 'player-channel-completed';
 
 export interface Position {
   x: number;
@@ -66,6 +76,11 @@ export interface SimEntity {
   bountyExperience: number;
   critChance: number;
   aggroRange: number;
+  mana?: number;
+  maxMana?: number;
+  manaRegenPerSecond?: number;
+  skillCooldowns?: Record<PlayerSkillKey, number>;
+  channel?: PlayerChannel | null;
 }
 
 export interface SimEvent {
@@ -88,6 +103,7 @@ export interface Simulation {
   winner: Team | null;
   endReason: 'crystal-destroyed' | null;
   events: SimEvent[];
+  playerHeroId: string | null;
 }
 
 export interface EquipmentDefinition {
@@ -198,6 +214,39 @@ const HERO_TEMPLATES: readonly HeroTemplate[] = [
   },
 ];
 
+export const HERO_SKILLS: Record<HeroRole, Record<'Q' | 'E' | 'R', SkillDefinition>> = {
+  vanguard: {
+    Q: { key: 'Q', name: '裂地冲击', effect: 'area-damage', manaCost: 25, cooldownTicks: 120, range: 3.2, radius: 1.6, multiplier: 1.3 },
+    E: { key: 'E', name: '坚韧恢复', effect: 'heal', manaCost: 40, cooldownTicks: 240, range: 0, healRatio: 0.18 },
+    R: { key: 'R', name: '震荡重击', effect: 'area-damage', manaCost: 70, cooldownTicks: 800, range: 4.5, radius: 2.4, multiplier: 2.0 },
+  },
+  ranger: {
+    Q: { key: 'Q', name: '穿透箭', effect: 'damage', manaCost: 25, cooldownTicks: 120, range: 7, multiplier: 1.5 },
+    E: { key: 'E', name: '扇形散射', effect: 'area-damage', manaCost: 40, cooldownTicks: 240, range: 6, radius: 2.2, multiplier: 1.0 },
+    R: { key: 'R', name: '远星狙击', effect: 'damage', manaCost: 70, cooldownTicks: 800, range: 10, multiplier: 2.6 },
+  },
+  arcanist: {
+    Q: { key: 'Q', name: '奥术弹', effect: 'damage', manaCost: 25, cooldownTicks: 120, range: 7, multiplier: 1.4 },
+    E: { key: 'E', name: '星环爆发', effect: 'area-damage', manaCost: 40, cooldownTicks: 240, range: 6, radius: 2.5, multiplier: 1.25 },
+    R: { key: 'R', name: '陨星坠落', effect: 'area-damage', manaCost: 70, cooldownTicks: 800, range: 8, radius: 3.2, multiplier: 2.1 },
+  },
+  duelist: {
+    Q: { key: 'Q', name: '疾刃连斩', effect: 'damage', manaCost: 25, cooldownTicks: 120, range: 3.2, multiplier: 1.7 },
+    E: { key: 'E', name: '影袭突进', effect: 'dash-strike', manaCost: 40, cooldownTicks: 240, range: 5.5, multiplier: 1.2 },
+    R: { key: 'R', name: '终结斩', effect: 'damage', manaCost: 70, cooldownTicks: 800, range: 3.5, multiplier: 2.5 },
+  },
+  guardian: {
+    Q: { key: 'Q', name: '圣光锤击', effect: 'damage', manaCost: 25, cooldownTicks: 120, range: 3.5, multiplier: 1.3 },
+    E: { key: 'E', name: '守护祝福', effect: 'heal', manaCost: 40, cooldownTicks: 240, range: 0, healRatio: 0.22 },
+    R: { key: 'R', name: '壁垒震击', effect: 'area-damage', manaCost: 70, cooldownTicks: 800, range: 3.5, radius: 3.0, multiplier: 1.8 },
+  },
+};
+
+const FLASH_DISTANCE = 5;
+const FLASH_COOLDOWN_TICKS = 110 * TICKS_PER_SECOND;
+const CHANNEL_TICKS = 5 * TICKS_PER_SECOND;
+const CHANNEL_COOLDOWN_TICKS = 60 * TICKS_PER_SECOND;
+
 const HERO_LANE_OFFSETS = [-2, -1, 0, 1, 2] as const;
 const HERO_RESPAWN_TICKS = 120;
 const MONSTER_RESPAWN_TICKS = 900;
@@ -246,6 +295,11 @@ function createHero(team: Team, template: HeroTemplate, index: number): SimEntit
     attackRange: template.attackRange,
     attackCooldownTicks: template.attackCooldownTicks,
     cooldownRemaining: 0,
+    mana: 300,
+    maxMana: 300,
+    manaRegenPerSecond: 4,
+    skillCooldowns: { Q: 0, E: 0, R: 0, F: 0, G: 0, B: 0 },
+    channel: null,
     moveSpeed: template.moveSpeed,
     level: 1,
     experience: 0,
@@ -373,7 +427,7 @@ function createMonster(type: MonsterType): SimEntity {
   };
 }
 
-export function createSimulation(seed = 1): Simulation {
+export function createSimulation(seed = 1, playerRole?: HeroRole): Simulation {
   const normalizedSeed = Math.abs(Math.trunc(seed)) >>> 0;
   const world: Simulation = {
     seed: normalizedSeed,
@@ -385,6 +439,7 @@ export function createSimulation(seed = 1): Simulation {
     winner: null,
     endReason: null,
     events: [],
+    playerHeroId: playerRole ? 'blue-hero-' + playerRole : null,
   };
 
   for (const team of ['blue', 'red'] as const) {
@@ -559,10 +614,22 @@ function gainExperience(world: Simulation, hero: SimEntity, amount: number): voi
   }
 }
 
+function cancelPlayerChannel(world: Simulation, hero: SimEntity, reason: string): void {
+  const channel = hero.channel;
+  if (!channel) return;
+  hero.channel = null;
+  addEvent(world, { type: 'player-channel-cancelled', sourceId: hero.id, detail: channel.kind + ':' + reason });
+}
+
+function interruptPlayerChannelOnDamage(world: Simulation, target: SimEntity): void {
+  if (target.id === world.playerHeroId && target.channel) cancelPlayerChannel(world, target, 'damage');
+}
+
 function killEntity(world: Simulation, attacker: SimEntity, target: SimEntity): void {
   if (!target.alive) return;
   target.alive = false;
   target.hp = 0;
+  if (target.id === world.playerHeroId) cancelPlayerChannel(world, target, 'death');
 
   if (target.kind === 'hero') {
     target.deaths += 1;
@@ -599,6 +666,7 @@ function performAttack(world: Simulation, attacker: SimEntity, target: SimEntity
   }
 
   attacker.cooldownRemaining = attacker.attackCooldownTicks;
+  if (amount > 0) interruptPlayerChannelOnDamage(world, target);
   target.hp = Math.max(0, target.hp - amount);
   addEvent(world, {
     type: 'attack',
@@ -775,12 +843,19 @@ function updateHeroAI(world: Simulation, hero: SimEntity): void {
 function updateActor(world: Simulation, actor: SimEntity): void {
   if (!actor.alive || actor.kind === 'crystal') return;
   if (actor.cooldownRemaining > 0) actor.cooldownRemaining -= 1;
-
   if (actor.kind === 'hero') {
+    if (actor.skillCooldowns) {
+      for (const key of Object.keys(actor.skillCooldowns) as PlayerSkillKey[]) {
+        actor.skillCooldowns[key] = Math.max(0, actor.skillCooldowns[key] - 1);
+      }
+    }
+    if (typeof actor.mana === 'number' && typeof actor.maxMana === 'number') {
+      actor.mana = Math.min(actor.maxMana, actor.mana + (actor.manaRegenPerSecond ?? 0) * FIXED_STEP_SECONDS);
+    }
+    if (actor.id === world.playerHeroId) return;
     updateHeroAI(world, actor);
     return;
   }
-
   const target = selectTarget(world, actor);
   if (!target) return;
   const range = distance(actor.position, target.position);
@@ -789,6 +864,157 @@ function updateActor(world: Simulation, actor: SimEntity): void {
     return;
   }
   if (actor.moveSpeed > 0) moveTowards(actor, target);
+}
+
+function playerEnemyTargets(world: Simulation, hero: SimEntity): SimEntity[] {
+  return world.entities.filter((entity) => entity.alive && entity.team !== hero.team && entity.kind !== 'crystal');
+}
+
+function applyPlayerSkillDamage(world: Simulation, hero: SimEntity, target: SimEntity, multiplier: number): number {
+  const amount = calculateDamage({
+    damageType: hero.damageType,
+    attackDamage: hero.attackDamage * multiplier,
+    magicPower: hero.magicPower * multiplier,
+  }, target);
+  interruptPlayerChannelOnDamage(world, target);
+  target.hp = Math.max(0, target.hp - amount);
+  if (target.hp === 0) killEntity(world, hero, target);
+  return amount;
+}
+
+function castRoleSkill(world: Simulation, hero: SimEntity, key: 'Q' | 'E' | 'R'): boolean {
+  if (!hero.role || !hero.skillCooldowns) return false;
+  const definition = HERO_SKILLS[hero.role][key];
+  const mana = hero.mana ?? 0;
+  if (hero.skillCooldowns[key] > 0 || mana < definition.manaCost) return false;
+  let totalAmount = 0;
+  let primaryTarget: SimEntity | null = null;
+  if (definition.effect === 'heal') {
+    if (hero.hp >= hero.maxHp) return false;
+    totalAmount = Math.min(hero.maxHp - hero.hp, Math.round(hero.maxHp * (definition.healRatio ?? 0)));
+    if (totalAmount <= 0) return false;
+    hero.hp += totalAmount;
+  } else {
+    primaryTarget = nearestEntity(hero, playerEnemyTargets(world, hero), definition.range);
+    if (!primaryTarget) return false;
+    if (definition.effect === 'dash-strike') {
+      const dx = primaryTarget.position.x - hero.position.x;
+      const dy = primaryTarget.position.y - hero.position.y;
+      const targetDistance = Math.hypot(dx, dy);
+      if (targetDistance > 0) {
+        hero.position.x = primaryTarget.position.x - (dx / targetDistance) * 0.85;
+        hero.position.y = primaryTarget.position.y - (dy / targetDistance) * 0.85;
+      }
+    }
+    const targets = definition.effect === 'area-damage'
+      ? playerEnemyTargets(world, hero).filter((entity) => distance(entity.position, primaryTarget!.position) <= (definition.radius ?? 0))
+      : [primaryTarget];
+    for (const target of targets) {
+      if (target.alive) totalAmount += applyPlayerSkillDamage(world, hero, target, definition.multiplier ?? 1);
+    }
+  }
+  hero.mana = Math.max(0, mana - definition.manaCost);
+  hero.skillCooldowns[key] = definition.cooldownTicks;
+  addEvent(world, {
+    type: 'player-skill',
+    sourceId: hero.id,
+    targetId: primaryTarget?.id,
+    amount: totalAmount,
+    detail: key + ':' + definition.name + ';mana=' + definition.manaCost,
+  });
+  return true;
+}
+
+function castFlash(world: Simulation, hero: SimEntity, moveX: number, moveY: number): boolean {
+  if (!hero.skillCooldowns || hero.skillCooldowns.F > 0) return false;
+  let dx = moveX;
+  let dy = moveY;
+  let directionLength = Math.hypot(dx, dy);
+  if (directionLength === 0) {
+    const target = nearestEntity(hero, playerEnemyTargets(world, hero));
+    if (target) {
+      dx = target.position.x - hero.position.x;
+      dy = target.position.y - hero.position.y;
+      directionLength = Math.hypot(dx, dy);
+    }
+  }
+  if (directionLength === 0) {
+    dx = hero.team === 'blue' ? 1 : -1;
+    dy = 0;
+    directionLength = 1;
+  }
+  hero.position.x += (dx / directionLength) * FLASH_DISTANCE;
+  hero.position.y += (dy / directionLength) * FLASH_DISTANCE;
+  hero.skillCooldowns.F = FLASH_COOLDOWN_TICKS;
+  addEvent(world, { type: 'player-skill', sourceId: hero.id, amount: FLASH_DISTANCE, detail: 'F:flash' });
+  return true;
+}
+
+function startPlayerChannel(world: Simulation, hero: SimEntity, kind: PlayerChannelKind): boolean {
+  if (!hero.skillCooldowns || hero.channel) return false;
+  const key: 'G' | 'B' = kind === 'heal' ? 'G' : 'B';
+  if (hero.skillCooldowns[key] > 0) return false;
+  hero.skillCooldowns[key] = CHANNEL_COOLDOWN_TICKS;
+  hero.channel = { kind, totalTicks: CHANNEL_TICKS, remainingTicks: CHANNEL_TICKS };
+  addEvent(world, { type: 'player-channel-started', sourceId: hero.id, detail: key + ':' + kind, amount: CHANNEL_TICKS });
+  return true;
+}
+
+function applyPlayerCommand(world: Simulation, command?: PlayerCommand): void {
+  if (!command || command.enabled === false || world.winner !== null || !world.playerHeroId) return;
+  const hero = world.entities.find((entity) => entity.id === world.playerHeroId);
+  if (!hero || hero.kind !== 'hero' || !hero.alive) return;
+  const moveX = command.moveX ?? 0;
+  const moveY = command.moveY ?? 0;
+  const moveLength = Math.hypot(moveX, moveY);
+  const moving = moveLength > 0;
+  if (command.skill === 'F') {
+    if (hero.channel) cancelPlayerChannel(world, hero, 'move');
+    castFlash(world, hero, moveX, moveY);
+    return;
+  }
+  if (moving) {
+    if (hero.channel) cancelPlayerChannel(world, hero, 'move');
+    const distanceMoved = hero.moveSpeed * world.stepSeconds;
+    hero.position.x += (moveX / moveLength) * distanceMoved;
+    hero.position.y += (moveY / moveLength) * distanceMoved;
+    addEvent(world, { type: 'player-moved', sourceId: hero.id, amount: distanceMoved });
+  }
+  if (command.attack) {
+    if (hero.channel) cancelPlayerChannel(world, hero, 'attack');
+    if (hero.cooldownRemaining === 0) {
+      const target = nearestEntity(hero, playerEnemyTargets(world, hero), hero.attackRange);
+      if (target) performAttack(world, hero, target);
+    }
+  }
+  if (!command.skill || command.skill === 'F') return;
+  if (command.skill === 'G' || command.skill === 'B') {
+    if (moving || command.attack) return;
+    startPlayerChannel(world, hero, command.skill === 'G' ? 'heal' : 'recall');
+    return;
+  }
+  castRoleSkill(world, hero, command.skill);
+}
+
+function advancePlayerChannel(world: Simulation): void {
+  if (!world.playerHeroId) return;
+  const hero = world.entities.find((entity) => entity.id === world.playerHeroId);
+  const channel = hero?.channel;
+  if (!hero || !hero.alive || !channel) return;
+  channel.remainingTicks = Math.max(0, channel.remainingTicks - 1);
+  if (channel.remainingTicks > 0) return;
+  if (channel.kind === 'heal') {
+    const hpRestored = Math.min(hero.maxHp - hero.hp, Math.round(hero.maxHp * 0.3));
+    const manaRestored = Math.min((hero.maxMana ?? 0) - (hero.mana ?? 0), Math.round((hero.maxMana ?? 0) * 0.3));
+    hero.hp += hpRestored;
+    hero.mana = (hero.mana ?? 0) + manaRestored;
+    addEvent(world, { type: 'player-channel-completed', sourceId: hero.id, amount: hpRestored, detail: 'G:heal;mana-restored=' + manaRestored });
+  } else {
+    const home = world.entities.find((entity) => entity.kind === 'crystal' && entity.team === hero.team);
+    if (home) hero.position = { ...home.position };
+    addEvent(world, { type: 'player-channel-completed', sourceId: hero.id, amount: CHANNEL_TICKS, detail: 'B:recall' });
+  }
+  hero.channel = null;
 }
 
 function respawnEntities(world: Simulation): void {
@@ -814,7 +1040,7 @@ function respawnEntities(world: Simulation): void {
   }
 }
 
-export function stepSimulation(world: Simulation, steps = 1): Simulation {
+export function stepSimulation(world: Simulation, steps = 1, command?: PlayerCommand): Simulation {
   if (!Number.isInteger(steps) || steps < 0) {
     throw new RangeError('steps must be a non-negative integer');
   }
@@ -836,6 +1062,8 @@ export function stepSimulation(world: Simulation, steps = 1): Simulation {
     }
 
     if (world.winner !== null) break;
+    applyPlayerCommand(world, command);
+    if (command?.enabled !== false) advancePlayerChannel(world);
     world.tick += 1;
     if (world.tick % AI_RULES.passiveGoldIntervalTicks === 0) {
       for (const hero of world.entities) {

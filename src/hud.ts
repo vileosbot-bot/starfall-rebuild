@@ -1,5 +1,5 @@
-import { EQUIPMENT, FIXED_STEP_SECONDS, purchaseEquipment } from './sim.ts';
-import type { EquipmentDefinition, EquipmentId, HeroRole, SimEntity, Simulation } from './sim.ts';
+import { EQUIPMENT, FIXED_STEP_SECONDS, HERO_SKILLS, purchaseEquipment } from './sim.ts';
+import type { EquipmentDefinition, EquipmentId, HeroRole, PlayerSkillKey, SimEntity, Simulation } from './sim.ts';
 
 export type EquipmentAvailability = 'available' | 'insufficient-gold' | 'inventory-full' | 'already-owned';
 
@@ -51,13 +51,13 @@ export function createMatchSession<T>(): MatchSession<T> {
 }
 
 export const SKILL_HINTS = [
-  { key: 'Q', text: 'Q 技能：本批仅显示按键提示，未实现技能效果。' },
-  { key: 'E', text: 'E 技能：本批仅显示按键提示，未实现技能效果。' },
-  { key: 'R', text: 'R 技能：本批仅显示按键提示，未实现技能效果。' },
-  { key: 'F', text: 'F 闪现：本批仅显示按键提示，未实现位移效果。' },
-  { key: 'G', text: 'G 疗伤：本批仅显示按键提示，未实现治疗效果。' },
-  { key: 'B', text: 'B 回城：本批仅显示按键提示，未实现回城效果。' },
-  { key: 'Space', text: '空格普攻：本批仅显示按键提示，未接入玩家攻击操作。' },
+  { key: 'Q', text: 'Q：释放当前英雄的第一技能。' },
+  { key: 'E', text: 'E：释放当前英雄的第二技能。' },
+  { key: 'R', text: 'R：释放当前英雄的终极技能。' },
+  { key: 'F', text: 'F：沿移动方向闪现 5 个单位。' },
+  { key: 'G', text: 'G：引导 5 秒，恢复 30% 最大生命和法力。' },
+  { key: 'B', text: 'B：引导 5 秒，返回己方泉水。' },
+  { key: 'Space', text: '空格：攻击射程内最近的敌方单位。' },
 ] as const;
 
 export function formatGameTime(ticks: number): string {
@@ -83,6 +83,34 @@ export function getEquipmentAvailability(
 
 export function getSkillHint(key: string): string | null {
   return SKILL_HINTS.find((item) => item.key.toLowerCase() === key.toLowerCase())?.text ?? null;
+}
+
+export interface SkillHudState {
+  cooldownTicks: number;
+  cooldownSeconds: number;
+  manaInsufficient: boolean;
+}
+
+export function getSkillHudState(hero: Pick<SimEntity, 'mana' | 'skillCooldowns'>, role: HeroRole, key: PlayerSkillKey): SkillHudState {
+  const cooldownTicks = hero.skillCooldowns?.[key] ?? 0;
+  const manaCost = key === 'Q' || key === 'E' || key === 'R' ? HERO_SKILLS[role][key].manaCost : 0;
+  return { cooldownTicks, cooldownSeconds: cooldownTicks * FIXED_STEP_SECONDS, manaInsufficient: manaCost > 0 && (hero.mana ?? 0) < manaCost };
+}
+
+export interface ChannelHudState {
+  label: string;
+  progress: number;
+  remainingSeconds: number;
+}
+
+export function getChannelHudState(hero: Pick<SimEntity, 'channel'>): ChannelHudState | null {
+  const channel = hero.channel;
+  if (!channel) return null;
+  return {
+    label: channel.kind === 'heal' ? '疗伤' : '回城',
+    progress: (channel.totalTicks - channel.remainingTicks) / channel.totalTicks,
+    remainingSeconds: channel.remainingTicks * FIXED_STEP_SECONDS,
+  };
 }
 
 function equipmentStats(item: EquipmentDefinition): string {
@@ -213,6 +241,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
   const winnerSubtitle = required<HTMLElement>('#winner-subtitle');
   const audioState = required<HTMLElement>('#audio-state');
   const actionHint = required<HTMLElement>('#action-hint');
+  const skillbar = required<HTMLElement>('.skillbar');
   const scoreboardBlue = required<HTMLElement>('#scoreboard-blue');
   const scoreboardRed = required<HTMLElement>('#scoreboard-red');
   const scoreRows = {
@@ -224,6 +253,39 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
   let latestWorld: Simulation | null = null;
   let selectedHeroRole: HeroRole = 'vanguard';
   let active = false;
+
+  const resourcePanel = document.createElement('div');
+  resourcePanel.style.cssText = 'display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:118px;padding:2px 5px;color:#c9d8e9;font-size:10px;';
+  const manaLabel = document.createElement('span');
+  const manaTrack = document.createElement('div');
+  manaTrack.style.cssText = 'height:6px;overflow:hidden;border-radius:5px;background:rgba(90,120,150,.35);';
+  const manaFill = document.createElement('div');
+  manaFill.style.cssText = 'height:100%;width:100%;background:#54a8dc;transition:width .08s linear;';
+  manaTrack.append(manaFill);
+  const channelLabel = document.createElement('span');
+  channelLabel.style.cssText = 'min-height:12px;color:#f0d28a;';
+  const channelTrack = document.createElement('div');
+  channelTrack.style.cssText = 'height:4px;overflow:hidden;border-radius:4px;background:rgba(160,140,90,.25);';
+  const channelFill = document.createElement('div');
+  channelFill.style.cssText = 'height:100%;width:0%;background:#e6bd67;transition:width .08s linear;';
+  channelTrack.append(channelFill);
+  resourcePanel.append(manaLabel, manaTrack, channelLabel, channelTrack);
+  skillbar.insertBefore(resourcePanel, skillbar.firstChild);
+
+  const cooldownOverlays = new Map<PlayerSkillKey, { slot: HTMLElement; overlay: HTMLSpanElement }>();
+  for (const slot of skillbar.querySelectorAll<HTMLElement>('.skill-slot')) {
+    const keyText = slot.querySelector('kbd')?.textContent?.trim() ?? '';
+    if (!['Q', 'E', 'R', 'F', 'G', 'B'].includes(keyText)) continue;
+    const key = keyText as PlayerSkillKey;
+    slot.style.position = 'relative';
+    const overlay = document.createElement('span');
+    overlay.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(4,9,15,.78);color:#fff;font-size:11px;font-weight:700;';
+    overlay.hidden = true;
+    slot.append(overlay);
+    cooldownOverlays.set(key, { slot, overlay });
+  }
+
+  actionHint.textContent = 'WASD/方向键移动 · 空格攻击 · Q/E/R技能 · F闪现 · G疗伤 · B回城';
 
   for (const item of Object.values(EQUIPMENT)) {
     const row = document.createElement('div');
@@ -314,6 +376,25 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
     updateShop(world);
     updateScoreboard(world);
 
+    const mana = selectedHero?.mana ?? 0;
+    const maxMana = selectedHero?.maxMana ?? 0;
+    manaLabel.textContent = 'MP ' + Math.floor(mana) + '/' + maxMana;
+    manaFill.style.width = (maxMana > 0 ? Math.max(0, Math.min(100, (mana / maxMana) * 100)) : 0) + '%';
+    for (const [key, refs] of cooldownOverlays) {
+      const state = selectedHero
+        ? getSkillHudState(selectedHero, selectedHeroRole, key)
+        : { cooldownTicks: 0, cooldownSeconds: 0, manaInsufficient: false };
+      refs.overlay.hidden = state.cooldownTicks <= 0;
+      refs.overlay.textContent = state.cooldownTicks > 0 ? state.cooldownSeconds.toFixed(1) + 's' : '';
+      refs.slot.style.opacity = state.manaInsufficient ? '0.42' : '1';
+    }
+    const channelState = selectedHero ? getChannelHudState(selectedHero) : null;
+    channelLabel.textContent = channelState
+      ? channelState.label + '引导 ' + (5 - channelState.remainingSeconds).toFixed(1) + '/5.0s'
+      : '';
+    channelTrack.hidden = !channelState;
+    channelFill.style.width = (channelState ? channelState.progress * 100 : 0) + '%';
+
     if (world.winner === null) {
       winnerOverlay.hidden = true;
     } else {
@@ -328,6 +409,20 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
     hudRoot.hidden = !value;
     if (!value) {
       latestWorld = null;
+      gameTime.textContent = '00:00';
+      blueScore.textContent = '0';
+      redScore.textContent = '0';
+      teamGold.textContent = '0';
+      manaLabel.textContent = 'MP 0/0';
+      manaFill.style.width = '0%';
+      channelLabel.textContent = '';
+      channelTrack.hidden = true;
+      channelFill.style.width = '0%';
+      for (const refs of cooldownOverlays.values()) {
+        refs.overlay.hidden = true;
+        refs.overlay.textContent = '';
+        refs.slot.style.opacity = '1';
+      }
       shopPanel.hidden = true;
       scoreboardPanel.hidden = true;
       pauseOverlay.hidden = true;
@@ -368,7 +463,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
       audioState.textContent = muted ? '音效：静音' : '音效：开启';
     },
     setHint(key) {
-      actionHint.textContent = getSkillHint(key) ?? '技能与操作键目前仅作界面占位，不触发实际效果。';
+      actionHint.textContent = getSkillHint(key) ?? 'WASD/方向键移动 · 空格攻击 · Q/E/R技能 · F闪现 · G疗伤 · B回城';
     },
     setShopFeedback(message) {
       shopFeedback.textContent = message;

@@ -5,6 +5,7 @@ import {
   EQUIPMENT,
   FIXED_STEP_SECONDS,
   HERO_PURCHASE_ORDER,
+  HERO_SKILLS,
   WAVE_INTERVAL_TICKS,
   calculateDamage,
   createSimulation,
@@ -408,4 +409,212 @@ test('the 30-minute natural match destroys towers and a crystal, declares a winn
   stepSimulation(world, 1000);
   assert.equal(world.tick, terminalTick);
   assert.equal(world.events.length, terminalEventCount);
+});
+
+
+test('player movement is fixed-step and stops when movement input is released', () => {
+  const world = createSimulation(101, 'vanguard');
+  const hero = entity(world, 'blue-hero-vanguard');
+  const start = { ...hero.position };
+  stepSimulation(world, 4, { moveX: 1 });
+  assert.ok(Math.abs(hero.position.x - (start.x + hero.moveSpeed * FIXED_STEP_SECONDS * 4)) < 1e-9);
+  const stopped = { ...hero.position };
+  stepSimulation(world, 3);
+  assert.deepEqual(hero.position, stopped);
+});
+
+test('space attack damages the nearest in-range enemy using the normal damage calculation', () => {
+  const world = createSimulation(103, 'vanguard');
+  const hero = entity(world, 'blue-hero-vanguard');
+  const target = entity(world, 'red-hero-vanguard');
+  hero.position = { x: 0, y: 0 };
+  hero.attackRange = 2;
+  hero.critChance = 0;
+  target.position = { x: 1, y: 0 };
+  target.hp = target.maxHp;
+  const expected = calculateDamage(hero, target);
+  stepSimulation(world, 1, { attack: true });
+  const attack = world.events.find((event) => event.type === 'attack' && event.sourceId === hero.id && event.targetId === target.id);
+  assert.ok(attack);
+  assert.equal(attack.amount, expected);
+  assert.equal(target.hp, target.maxHp - expected);
+});
+
+test('all five roles execute their three Q/E/R skills with locked parameters', () => {
+  for (const role of ['vanguard', 'ranger', 'arcanist', 'duelist', 'guardian']) {
+    for (const key of ['Q', 'E', 'R']) {
+      const world = createSimulation(107, role);
+      const hero = entity(world, 'blue-hero-' + role);
+      const target = entity(world, 'red-hero-vanguard');
+      hero.position = { x: 0, y: 0 };
+      hero.mana = hero.maxMana ?? 300;
+      target.position = { x: 1, y: 0 };
+      target.hp = target.maxHp;
+      if (HERO_SKILLS[role][key].effect === 'heal') hero.hp = hero.maxHp - 100;
+      stepSimulation(world, 1, { skill: key });
+      const event = world.events.find((entry) => entry.type === 'player-skill' && entry.sourceId === hero.id && entry.detail?.startsWith(key + ':'));
+      assert.ok(event, role + ' ' + key + ' should emit a player-skill event');
+      assert.equal(hero.skillCooldowns[key], HERO_SKILLS[role][key].cooldownTicks);
+      assert.equal(hero.mana, 300 - HERO_SKILLS[role][key].manaCost);
+    }
+  }
+});
+
+test('F flashes exactly five units and starts a 110-second cooldown', () => {
+  const world = createSimulation(109, 'ranger');
+  const hero = entity(world, 'blue-hero-ranger');
+  hero.position = { x: 0, y: 0 };
+  stepSimulation(world, 1, { skill: 'F', moveX: 1 });
+  assert.equal(hero.position.x, 5);
+  assert.equal(hero.position.y, 0);
+  assert.equal(hero.skillCooldowns.F, 110 * 20);
+  assert.ok(world.events.some((event) => event.type === 'player-skill' && event.detail === 'F:flash'));
+  stepSimulation(world, 1, { skill: 'F', moveX: 1 });
+  assert.equal(hero.position.x, 5);
+});
+
+test('G completes after five seconds and restores 30 percent of maximum health and mana', () => {
+  const world = createSimulation(113, 'guardian');
+  const hero = entity(world, 'blue-hero-guardian');
+  hero.hp = hero.maxHp - 400;
+  hero.mana = 100;
+  hero.manaRegenPerSecond = 0;
+  stepSimulation(world, 100, { skill: 'G' });
+  assert.equal(hero.hp, hero.maxHp - 94);
+  assert.equal(hero.mana, 190);
+  assert.equal(hero.channel, null);
+  assert.ok(world.events.some((event) => event.type === 'player-channel-completed' && event.detail?.startsWith('G:heal')));
+  assert.equal(hero.skillCooldowns.G, 60 * 20 - 99);
+});
+
+test('B completes after five seconds and returns the player hero to the home crystal', () => {
+  const world = createSimulation(127, 'duelist');
+  const hero = entity(world, 'blue-hero-duelist');
+  hero.position = { x: 0, y: 0 };
+  for (const unit of world.entities) {
+    if (unit.kind === 'hero' && unit.id !== hero.id) {
+      unit.alive = false;
+      unit.hp = 0;
+      unit.respawnTicks = 0;
+    }
+    if (unit.kind === 'monster') unit.position = { x: 50, y: 50 };
+  }
+  stepSimulation(world, 100, { skill: 'B' });
+  assert.deepEqual(hero.position, entity(world, 'blue-crystal').position);
+  assert.equal(hero.channel, null);
+  assert.equal(hero.skillCooldowns.B, 60 * 20 - 99);
+  assert.ok(world.events.some((event) => event.type === 'player-channel-completed' && event.detail === 'B:recall'));
+});
+
+test('cooldown and insufficient mana prevent repeated Q casts without spending more mana', () => {
+  const world = createSimulation(131, 'arcanist');
+  const hero = entity(world, 'blue-hero-arcanist');
+  const target = entity(world, 'red-hero-vanguard');
+  hero.position = { x: 0, y: 0 };
+  target.position = { x: 1, y: 0 };
+  hero.critChance = 0;
+  hero.manaRegenPerSecond = 0;
+  stepSimulation(world, 2, { skill: 'Q' });
+  const skillCount = world.events.filter((event) => event.type === 'player-skill' && event.sourceId === hero.id && event.detail?.startsWith('Q:')).length;
+  assert.equal(skillCount, 1);
+  assert.equal(hero.mana, 275);
+  hero.skillCooldowns.Q = 0;
+  hero.mana = 0;
+  stepSimulation(world, 1, { skill: 'Q' });
+  assert.equal(world.events.filter((event) => event.type === 'player-skill' && event.sourceId === hero.id && event.detail?.startsWith('Q:')).length, skillCount);
+  assert.equal(hero.skillCooldowns.Q, 0);
+});
+
+test('moving or attacking interrupts G/B channels and keeps the started cooldown', () => {
+  const moveWorld = createSimulation(137, 'vanguard');
+  const mover = entity(moveWorld, 'blue-hero-vanguard');
+  stepSimulation(moveWorld, 1, { skill: 'B' });
+  stepSimulation(moveWorld, 1, { moveX: 1 });
+  assert.equal(mover.channel, null);
+  assert.ok(mover.skillCooldowns.B > 0);
+  assert.ok(!moveWorld.events.some((event) => event.type === 'player-channel-completed' && event.detail === 'B:recall'));
+
+  const attackWorld = createSimulation(139, 'vanguard');
+  const attacker = entity(attackWorld, 'blue-hero-vanguard');
+  const target = entity(attackWorld, 'red-hero-vanguard');
+  attacker.position = { x: 0, y: 0 };
+  attacker.attackRange = 2;
+  target.position = { x: 1, y: 0 };
+  attacker.hp = attacker.maxHp - 200;
+  stepSimulation(attackWorld, 1, { skill: 'G' });
+  const hpAtStart = attacker.hp;
+  stepSimulation(attackWorld, 1, { attack: true });
+  assert.equal(attacker.channel, null);
+  assert.ok(attacker.skillCooldowns.G > 0);
+  assert.equal(attacker.hp, hpAtStart);
+  assert.ok(attackWorld.events.some((event) => event.type === 'player-channel-cancelled' && event.detail === 'heal:attack'));
+});
+
+test('damage interrupts a channel without applying its recovery effect', () => {
+  const world = createSimulation(149, 'guardian');
+  const hero = entity(world, 'blue-hero-guardian');
+  const monster = entity(world, 'neutral-sentinel');
+  for (const unit of world.entities) {
+    if (unit.kind === 'hero' && unit.id !== hero.id) {
+      unit.alive = false;
+      unit.hp = 0;
+      unit.respawnTicks = 0;
+    }
+  }
+  hero.position = { x: 0, y: 0 };
+  hero.hp = hero.maxHp - 100;
+  monster.position = { x: 50, y: 50 };
+  stepSimulation(world, 1, { skill: 'G' });
+  const hpAtChannelStart = hero.hp;
+  monster.position = { ...hero.position };
+  monster.attackRange = 2;
+  monster.attackDamage = 100;
+  monster.cooldownRemaining = 0;
+  const expectedDamage = calculateDamage(monster, hero);
+  stepSimulation(world, 1, { enabled: false });
+  assert.equal(hero.channel, null);
+  assert.equal(hero.hp, hpAtChannelStart - expectedDamage);
+  assert.ok(world.events.some((event) => event.type === 'player-channel-cancelled' && event.detail === 'heal:damage'));
+});
+
+test('dead and disabled player input cannot move, attack, or cast skills', () => {
+  const deadWorld = createSimulation(151, 'ranger');
+  const deadHero = entity(deadWorld, 'blue-hero-ranger');
+  deadHero.alive = false;
+  deadHero.hp = 0;
+  deadHero.respawnTicks = 90;
+  const deadPosition = { ...deadHero.position };
+  stepSimulation(deadWorld, 1, { moveX: 1, attack: true, skill: 'Q' });
+  assert.deepEqual(deadHero.position, deadPosition);
+  assert.equal(deadHero.mana, 300);
+  assert.ok(!deadWorld.events.some((event) => event.type === 'player-skill' && event.sourceId === deadHero.id));
+
+  const pausedWorld = createSimulation(157, 'ranger');
+  const pausedHero = entity(pausedWorld, 'blue-hero-ranger');
+  const pausedPosition = { ...pausedHero.position };
+  stepSimulation(pausedWorld, 1, { enabled: false, moveX: 1, attack: true, skill: 'Q' });
+  assert.deepEqual(pausedHero.position, pausedPosition);
+  assert.equal(pausedHero.mana, 300);
+  assert.ok(!pausedWorld.events.some((event) => event.type === 'player-skill' && event.sourceId === pausedHero.id));
+});
+
+test('selected hero is player-controlled while the other nine heroes retain AI behavior', () => {
+  const world = createSimulation(163, 'vanguard');
+  stepSimulation(world, 1);
+  const player = entity(world, 'blue-hero-vanguard');
+  assert.deepEqual(player.inventory, []);
+  const aiHeroes = world.entities.filter((unit) => unit.kind === 'hero' && unit.id !== player.id);
+  assert.equal(aiHeroes.length, 9);
+  assert.ok(aiHeroes.every((hero) => hero.inventory.length > 0));
+});
+
+test('player command sequences are deterministic for the same seed', () => {
+  const run = () => {
+    const world = createSimulation(167, 'ranger');
+    stepSimulation(world, 8, { moveX: 1 });
+    stepSimulation(world, 1, { skill: 'Q' });
+    stepSimulation(world, 12, { attack: true });
+    return world;
+  };
+  assert.deepEqual(run(), run());
 });

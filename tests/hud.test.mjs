@@ -10,6 +10,8 @@ import {
   createMatchSession,
   HERO_ROLES,
   SKILL_HINTS,
+  getSkillHudState,
+  getChannelHudState,
 } from '../src/hud.ts';
 
 test('game time formats zero, one minute, and ten minutes from fixed simulation ticks', () => {
@@ -80,4 +82,29 @@ test('manual purchase charges and equips the selected non-vanguard hero only', (
   assert.equal(ranger.gold, rangerGoldBefore - EQUIPMENT['ember-blade'].cost);
   assert.deepEqual(vanguard.inventory, []);
   assert.equal(vanguard.gold, vanguardGoldBefore);
+});
+
+
+test('skill HUD reports cooldown seconds and mana insufficiency', () => {
+  const hero = { mana: 10, skillCooldowns: { Q: 40, E: 0, R: 0, F: 0, G: 0, B: 0 } };
+  assert.deepEqual(getSkillHudState(hero, 'arcanist', 'Q'), {
+    cooldownTicks: 40,
+    cooldownSeconds: 2,
+    manaInsufficient: true,
+  });
+  assert.equal(getSkillHudState(hero, 'arcanist', 'F').manaInsufficient, false);
+});
+
+test('channel HUD exposes progress and remaining time for G and B', () => {
+  assert.deepEqual(getChannelHudState({ channel: { kind: 'recall', totalTicks: 100, remainingTicks: 40 } }), {
+    label: '回城',
+    progress: 0.6,
+    remainingSeconds: 2,
+  });
+  assert.deepEqual(getChannelHudState({ channel: { kind: 'heal', totalTicks: 100, remainingTicks: 90 } }), {
+    label: '疗伤',
+    progress: 0.1,
+    remainingSeconds: 4.5,
+  });
+  assert.equal(getChannelHudState({ channel: null }), null);
 });

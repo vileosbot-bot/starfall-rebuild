@@ -2,7 +2,7 @@ import { createAudioController } from './audio.ts';
 import { createHud, createMatchSession, getPlayerHeroId, HERO_LABELS, HERO_ROLES } from './hud.ts';
 import { createRenderScene } from './render.ts';
 import { createSimulation, FIXED_STEP_SECONDS, stepSimulation } from './sim.ts';
-import type { HeroRole, Simulation } from './sim.ts';
+import type { HeroRole, PlayerCommand, PlayerSkillKey, Simulation } from './sim.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -39,6 +39,32 @@ let accumulator = 0;
 let hudAccumulator = 0;
 let previousFrameTime = 0;
 let animationFrame = 0;
+const heldKeys = new Set<string>();
+let pendingAttack = false;
+let pendingSkill: PlayerSkillKey | null = null;
+
+function clearPlayerInput(): void {
+  heldKeys.clear();
+  pendingAttack = false;
+  pendingSkill = null;
+}
+
+function consumePlayerCommand(): PlayerCommand {
+  const left = heldKeys.has('a') || heldKeys.has('arrowleft');
+  const right = heldKeys.has('d') || heldKeys.has('arrowright');
+  const up = heldKeys.has('w') || heldKeys.has('arrowup');
+  const down = heldKeys.has('s') || heldKeys.has('arrowdown');
+  const command: PlayerCommand = {
+    enabled: true,
+    moveX: Number(right) - Number(left),
+    moveY: Number(down) - Number(up),
+    attack: heldKeys.has(' ') || pendingAttack,
+    skill: pendingSkill ?? undefined,
+  };
+  pendingAttack = false;
+  pendingSkill = null;
+  return command;
+}
 
 function setSelectedRole(role: HeroRole | null): void {
   selectedRole = role;
@@ -95,6 +121,13 @@ function handleSimulationEvents(world: Simulation): void {
 function onKeyDown(event: KeyboardEvent): void {
   if (event.repeat || !session.world) return;
   const key = event.key.toLowerCase();
+  if (key === 'escape') {
+    paused = !paused;
+    if (paused) clearPlayerInput();
+    hud.setPaused(paused);
+    return;
+  }
+  if (paused || session.world.winner !== null) return;
   if (key === 'p') {
     shopOpen = !shopOpen;
     if (shopOpen) scoreboardOpen = false;
@@ -108,22 +141,33 @@ function onKeyDown(event: KeyboardEvent): void {
     hud.setScoreboardOpen(scoreboardOpen);
     return;
   }
-  if (key === 'escape') {
-    paused = !paused;
-    hud.setPaused(paused);
-    return;
-  }
   if (key === 'm') {
     hud.setMuted(audio.toggleMuted());
     return;
   }
-
-  const hintKey = key === ' ' ? 'Space' : key.toUpperCase();
-  if (['Q', 'E', 'R', 'F', 'G', 'B', 'Space'].includes(hintKey)) {
-    if (hintKey === 'Space') event.preventDefault();
-    hud.setHint(hintKey);
+  if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+    heldKeys.add(key);
+    event.preventDefault();
+    return;
+  }
+  if (key === ' ') {
+    heldKeys.add(key);
+    pendingAttack = true;
+    event.preventDefault();
+    hud.setHint('Space');
+    return;
+  }
+  if (['q', 'e', 'r', 'f', 'g', 'b'].includes(key)) {
+    pendingSkill = key.toUpperCase() as PlayerSkillKey;
+    event.preventDefault();
+    hud.setHint(key.toUpperCase());
   }
 }
+
+function onKeyUp(event: KeyboardEvent): void {
+  heldKeys.delete(event.key.toLowerCase());
+}
+
 
 function frame(now: number): void {
   const world = session.world;
@@ -139,7 +183,11 @@ function frame(now: number): void {
   if (!paused && world.winner === null) {
     accumulator += elapsed;
     while (accumulator >= FIXED_STEP_SECONDS) {
-      stepSimulation(world, 1);
+      stepSimulation(world, 1, consumePlayerCommand());
+      const playerHero = session.selectedRole
+        ? world.entities.find((entity) => entity.id === getPlayerHeroId(session.selectedRole!))
+        : null;
+      if (!playerHero?.alive) clearPlayerInput();
       accumulator -= FIXED_STEP_SECONDS;
       if (world.winner !== null) {
         accumulator = 0;
@@ -163,7 +211,7 @@ function frame(now: number): void {
 
 function startMatch(role: HeroRole): void {
   if (session.world) return;
-  const world = session.enter(role, () => createSimulation(20261119));
+  const world = session.enter(role, () => createSimulation(20261119, role));
   paused = false;
   shopOpen = false;
   scoreboardOpen = false;
@@ -189,6 +237,7 @@ function startMatch(role: HeroRole): void {
 }
 
 function returnToMenu(): void {
+  clearPlayerInput();
   if (animationFrame !== 0) {
     window.cancelAnimationFrame(animationFrame);
     animationFrame = 0;
@@ -214,12 +263,16 @@ enterMatchButton.addEventListener('click', () => {
 });
 returnMenuButton.addEventListener('click', returnToMenu);
 window.addEventListener('keydown', onKeyDown);
+window.addEventListener('keyup', onKeyUp);
+window.addEventListener('blur', clearPlayerInput);
 
 setSelectedRole(null);
 hud.setActive(false);
 
 window.addEventListener('beforeunload', () => {
   window.removeEventListener('keydown', onKeyDown);
+  window.removeEventListener('keyup', onKeyUp);
+  window.removeEventListener('blur', clearPlayerInput);
   returnToMenu();
   audio.dispose();
 });
