@@ -97,6 +97,110 @@ export function getSkillHudState(hero: Pick<SimEntity, 'mana' | 'skillCooldowns'
   return { cooldownTicks, cooldownSeconds: cooldownTicks * FIXED_STEP_SECONDS, manaInsufficient: manaCost > 0 && (hero.mana ?? 0) < manaCost };
 }
 
+
+export interface MinimapMarker {
+  id: string;
+  team: 'blue' | 'red';
+  kind: 'hero' | 'minion' | 'tower' | 'crystal';
+  x: number;
+  y: number;
+  selected: boolean;
+  alive: boolean;
+  minionType?: SimEntity['minionType'];
+}
+
+export function getMinimapMarkers(world: Simulation, selectedHeroId: string | null): MinimapMarker[] {
+  const markers: MinimapMarker[] = [];
+  for (const entity of world.entities) {
+    if (entity.team === 'neutral') continue;
+    if (entity.kind !== 'hero' && entity.kind !== 'minion' && entity.kind !== 'tower' && entity.kind !== 'crystal') continue;
+    markers.push({
+      id: entity.id,
+      team: entity.team,
+      kind: entity.kind,
+      x: entity.position.x,
+      y: entity.position.y,
+      selected: entity.id === selectedHeroId,
+      alive: entity.alive,
+      minionType: entity.minionType,
+    });
+  }
+  return markers;
+}
+
+function drawMinimap(canvas: HTMLCanvasElement, world: Simulation, selectedHeroId: string | null): void {
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  const width = canvas.width;
+  const height = canvas.height;
+  const padding = 12;
+  const extent = 15;
+  const mapX = (x: number): number => padding + Math.max(0, Math.min(1, (x + extent) / (extent * 2))) * (width - padding * 2);
+  const mapY = (y: number): number => height - padding - Math.max(0, Math.min(1, (y + extent) / (extent * 2))) * (height - padding * 2);
+
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = '#142b31';
+  context.fillRect(0, 0, width, height);
+  context.lineCap = 'round';
+  context.strokeStyle = '#63715c';
+  context.lineWidth = 7;
+  for (const laneY of [-8, 0, 8]) {
+    context.beginPath();
+    context.moveTo(mapX(-extent), mapY(laneY));
+    context.lineTo(mapX(extent), mapY(laneY));
+    context.stroke();
+  }
+  context.strokeStyle = '#315d70';
+  context.lineWidth = 10;
+  context.beginPath();
+  context.moveTo(mapX(0), mapY(-extent));
+  context.lineTo(mapX(0), mapY(extent));
+  context.stroke();
+
+  context.fillStyle = '#3d694d';
+  for (const [x, y, radius] of [[-5, -11, 5], [5, -11, 5], [-5, 11, 5], [5, 11, 5]] as const) {
+    context.beginPath();
+    context.arc(mapX(x), mapY(y), radius, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  for (const marker of getMinimapMarkers(world, selectedHeroId)) {
+    const x = mapX(marker.x);
+    const y = mapY(marker.y);
+    const color = marker.team === 'blue' ? '#69baff' : '#ff9a78';
+    const radius = marker.kind === 'crystal' ? 6 : marker.kind === 'tower' ? 4.6 :
+      marker.kind === 'hero' ? 3.8 : marker.minionType === 'siege' || marker.minionType === 'super' ? 3.4 : 2.5;
+    context.globalAlpha = marker.alive ? 1 : 0.38;
+    context.fillStyle = color;
+    context.beginPath();
+    if (marker.kind === 'tower') {
+      context.rect(x - radius, y - radius, radius * 2, radius * 2);
+    } else if (marker.kind === 'crystal') {
+      context.moveTo(x, y - radius);
+      context.lineTo(x + radius, y);
+      context.lineTo(x, y + radius);
+      context.lineTo(x - radius, y);
+      context.closePath();
+    } else {
+      context.arc(x, y, radius, 0, Math.PI * 2);
+    }
+    context.fill();
+    if (marker.selected) {
+      context.globalAlpha = 1;
+      context.strokeStyle = '#ffe29a';
+      context.lineWidth = 2;
+      context.beginPath();
+      context.arc(x, y, radius + 3, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.globalAlpha = 1;
+  }
+
+  context.strokeStyle = 'rgba(190, 221, 220, .72)';
+  context.lineWidth = 1.5;
+  context.strokeRect(1, 1, width - 2, height - 2);
+}
+
 export interface ChannelHudState {
   label: string;
   progress: number;
@@ -242,6 +346,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
   const audioState = required<HTMLElement>('#audio-state');
   const actionHint = required<HTMLElement>('#action-hint');
   const skillbar = required<HTMLElement>('.skillbar');
+  const minimapCanvas = required<HTMLCanvasElement>('#minimap');
   const scoreboardBlue = required<HTMLElement>('#scoreboard-blue');
   const scoreboardRed = required<HTMLElement>('#scoreboard-red');
   const scoreRows = {
@@ -375,6 +480,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
     redScore.textContent = String(heroes.filter((hero) => hero.team === 'red').reduce((sum, hero) => sum + hero.kills, 0));
     teamGold.textContent = selectedHero ? formatGold(getLoggedGoldBalance(world, selectedHero.id)) : '0';
     gameTime.textContent = formatGameTime(world.tick);
+    drawMinimap(minimapCanvas, world, getPlayerHeroId(selectedHeroRole));
     updateShop(world);
     updateScoreboard(world);
 
@@ -429,6 +535,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
       scoreboardPanel.hidden = true;
       pauseOverlay.hidden = true;
       winnerOverlay.hidden = true;
+      minimapCanvas.getContext('2d')?.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
     }
   }
 

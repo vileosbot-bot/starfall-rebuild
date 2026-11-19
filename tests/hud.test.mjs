@@ -1,6 +1,7 @@
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
-import { EQUIPMENT, createSimulation, getLoggedGoldBalance, purchaseEquipment, stepSimulation } from '../src/sim.ts';
+import { EQUIPMENT, FIRST_WAVE_TICK, createSimulation, getLoggedGoldBalance, purchaseEquipment, stepSimulation } from '../src/sim.ts';
 import {
   formatGameTime,
   formatGold,
@@ -12,6 +13,7 @@ import {
   SKILL_HINTS,
   getSkillHudState,
   getChannelHudState,
+  getMinimapMarkers,
 } from '../src/hud.ts';
 
 test('game time formats zero, ten seconds, one minute, and ten minutes from fixed simulation ticks', () => {
@@ -134,4 +136,42 @@ test('HUD wallet balance is read from the per-hero gold transaction ledger', () 
   assert.equal(purchase.balanceAfter, 122);
   assert.equal(typeof purchase.tick, 'number');
   assert.equal(typeof purchase.simSeconds, 'number');
+});
+
+
+test('minimap markers include both teams and highlight only the selected player hero', () => {
+  const world = createSimulation(20261119);
+  stepSimulation(world, FIRST_WAVE_TICK + 1);
+  const selectedHeroId = getPlayerHeroId('ranger');
+  const markers = getMinimapMarkers(world, selectedHeroId);
+  assert.equal(markers.filter((marker) => marker.kind === 'hero').length, 10);
+  assert.equal(markers.filter((marker) => marker.kind === 'tower').length, 4);
+  assert.equal(markers.filter((marker) => marker.kind === 'crystal').length, 2);
+  assert.ok(markers.some((marker) => marker.kind === 'minion'));
+  assert.ok(markers.some((marker) => marker.id === selectedHeroId && marker.selected));
+  assert.ok(markers.filter((marker) => marker.kind === 'hero' && marker.id !== selectedHeroId)
+    .every((marker) => !marker.selected));
+  assert.ok(markers.every((marker) => marker.team === 'blue' || marker.team === 'red'));
+  assert.ok(!markers.some((marker) => marker.id.startsWith('neutral-')));
+});
+
+test('HUD contains a non-interactive minimap separated from the top bar and skillbar', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const render = await readFile(new URL('../src/render.ts', import.meta.url), 'utf8');
+  assert.match(html, /<canvas id="minimap" width="192" height="192"/);
+  assert.match(html, /#minimap\s*\{[^}]*top:\s*90px/s);
+  assert.match(html, /#minimap\s*\{[^}]*pointer-events:\s*none/s);
+  assert.match(html, /\.skillbar\s*\{[^}]*bottom:\s*22px/s);
+  for (const id of ['blue-score', 'red-score', 'game-time', 'team-gold', 'shop-panel', 'scoreboard-panel', 'winner-overlay']) {
+    assert.ok(html.includes('id="' + id + '"'), 'existing HUD element remains: ' + id);
+  }
+  for (const geometry of ['CylinderGeometry', 'SphereGeometry', 'OctahedronGeometry', 'TorusGeometry']) {
+    assert.ok(render.includes(geometry), 'distinct unit geometry remains: ' + geometry);
+  }
+  assert.ok(render.includes("entity.minionType === 'ranged'"));
+  assert.ok(render.includes("entity.minionType === 'siege'"));
+  assert.ok(render.includes("entity.minionType === 'super'"));
+  assert.ok(render.includes('for (const laneZ of [-8, 0, 8])'));
+  assert.ok(render.includes('riverGeometry'));
+  assert.ok(render.includes('grassGeometry'));
 });

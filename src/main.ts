@@ -1,7 +1,7 @@
 import { createAudioController } from './audio.ts';
 import { createHud, createMatchSession, getPlayerHeroId, HERO_LABELS, HERO_ROLES } from './hud.ts';
 import { createRenderScene } from './render.ts';
-import { createSimulation, FIXED_STEP_SECONDS, stepSimulation } from './sim.ts';
+import { createSimulation, FIXED_STEP_SECONDS, getEventsAfterSequence, stepSimulation } from './sim.ts';
 import type { HeroRole, PlayerCommand, PlayerSkillKey, Simulation } from './sim.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -34,7 +34,7 @@ let paused = false;
 let shopOpen = false;
 let scoreboardOpen = false;
 let audioUnlocked = false;
-let eventCursor = 0;
+let eventCursor = 0; // Last consumed event sequence, not an array index.
 let accumulator = 0;
 let hudAccumulator = 0;
 let previousFrameTime = 0;
@@ -88,18 +88,16 @@ function unlockAudio(): void {
   if (audioUnlocked || !world) return;
   audio.unlock();
   audioUnlocked = true;
-  eventCursor = world.events.length;
+  eventCursor = world.eventSequence;
 }
 
 function handleSimulationEvents(world: Simulation): void {
   if (!audioUnlocked) {
-    eventCursor = world.events.length;
+    eventCursor = world.eventSequence;
     return;
   }
   const selectedHeroId = session.selectedRole ? getPlayerHeroId(session.selectedRole) : null;
-  for (; eventCursor < world.events.length; eventCursor += 1) {
-    const event = world.events[eventCursor];
-    if (!event) continue;
+  for (const event of getEventsAfterSequence(world, eventCursor)) {
     if (event.type === 'attack') {
       if (event.targetId?.includes('-tower-')) audio.playTower();
       else if (event.sourceId === selectedHeroId) audio.playAttack();
@@ -115,6 +113,7 @@ function handleSimulationEvents(world: Simulation): void {
       if (event.team === 'blue') audio.playVictory();
       else audio.playDefeat();
     }
+    eventCursor = event.sequence;
   }
 }
 
@@ -215,7 +214,7 @@ function startMatch(role: HeroRole): void {
   paused = false;
   shopOpen = false;
   scoreboardOpen = false;
-  eventCursor = world.events.length;
+  eventCursor = world.eventSequence;
   accumulator = 0;
   hudAccumulator = 0;
   previousFrameTime = 0;

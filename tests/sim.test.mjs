@@ -9,6 +9,9 @@ import {
   WAVE_INTERVAL_TICKS,
   FIRST_WAVE_TICK,
   PASSIVE_GOLD_START_TICK,
+  MAX_EVENT_HISTORY,
+  MINION_CORPSE_GRACE_TICKS,
+  getEventsAfterSequence,
   calculateHeroKillGold,
   calculateHeroKillExperience,
   HERO_KILL_EXPERIENCE_SCALE,
@@ -450,7 +453,7 @@ test('the three specified ten-minute seeds produce tower destruction', () => {
     stepSimulation(world, 12000);
     return {
       seed,
-      destroyedTowers: world.events.filter((event) => event.type === 'tower-destroyed').length,
+      destroyedTowers: world.entities.filter((entity) => entity.kind === 'tower' && !entity.alive).length,
       winner: world.winner,
     };
   });
@@ -464,7 +467,7 @@ test('the 30-minute natural match destroys towers and a crystal, declares a winn
   stepSimulation(repeat, 36000);
 
   assert.deepEqual(world, repeat);
-  assert.ok(world.events.some((event) => event.type === 'tower-destroyed'));
+  assert.ok(world.entities.some((entity) => entity.kind === 'tower' && !entity.alive));
   const crystalEvent = world.events.find((event) => event.type === 'crystal-destroyed');
   assert.ok(crystalEvent);
   assert.equal(world.winner, crystalEvent.team);
@@ -914,3 +917,95 @@ test('tower destruction pays every teammate by layer, a 40 gold hero last-hit bo
   ));
 });
 
+
+
+test('dead minions are reclaimed after the grace period while permanent units remain', () => {
+  const world = createSimulation(20261119);
+  stepSimulation(world, FIRST_WAVE_TICK + 1);
+  const attacker = entity(world, 'blue-hero-vanguard');
+  const target = world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
+  assert.ok(target);
+  for (const unit of world.entities) {
+    if (unit.id === attacker.id || unit.id === target.id) continue;
+    unit.alive = false;
+    unit.respawnTicks = 0;
+  }
+  attacker.position = { ...target.position };
+  attacker.attackRange = 3;
+  attacker.attackDamage = 5000;
+  attacker.cooldownRemaining = 0;
+  target.hp = 1;
+
+  stepSimulation(world, 1);
+  assert.equal(target.alive, false);
+  assert.equal(target.deathTick, world.tick - 1);
+  const permanentIds = [attacker.id, 'blue-tower-1', 'blue-crystal', 'neutral-sentinel'];
+  stepSimulation(world, MINION_CORPSE_GRACE_TICKS - 2);
+  assert.ok(world.entities.some((unit) => unit.id === target.id), 'corpse remains during the grace period');
+  stepSimulation(world, 1);
+  assert.ok(!world.entities.some((unit) => unit.id === target.id), 'expired minion corpse is removed');
+  for (const id of permanentIds) {
+    assert.ok(world.entities.some((unit) => unit.id === id), 'permanent entity remains: ' + id);
+  }
+});
+
+test('sequence cursor consumes events once while the bounded history is pruned', () => {
+  const world = createSimulation(20261119);
+  const consumed = [];
+  let cursor = 0;
+  const consume = () => {
+    for (const event of getEventsAfterSequence(world, cursor)) {
+      assert.ok(event.sequence > cursor);
+      consumed.push(event.sequence);
+      cursor = event.sequence;
+    }
+    assert.ok(cursor <= world.eventSequence);
+  };
+  consume();
+  for (let tick = 0; tick < 12000 && world.winner === null; tick += 1) {
+    stepSimulation(world, 1);
+    consume();
+    assert.ok(world.events.length <= MAX_EVENT_HISTORY);
+  }
+  assert.ok(world.eventSequence > MAX_EVENT_HISTORY, 'the sample must exercise event pruning');
+  assert.equal(cursor, world.eventSequence);
+  assert.equal(consumed.length, world.eventSequence);
+  assert.equal(new Set(consumed).size, consumed.length);
+  assert.deepEqual(consumed, Array.from({ length: world.eventSequence }, (_, index) => index + 1));
+});
+
+test('30-minute sample bounds entities and event history and remains deterministic', () => {
+  const run = () => {
+    const world = createSimulation(20261119);
+    const startedAt = Date.now();
+    stepSimulation(world, 36000);
+    return { world, elapsedMs: Date.now() - startedAt };
+  };
+  const first = run();
+  const second = run();
+  const deadMinions = first.world.entities.filter((unit) => unit.kind === 'minion' && !unit.alive).length;
+  const entityCeiling = 738;
+  assert.ok(first.world.tick < 36000, 'natural crystal result stops before the 36,000-step cap');
+  assert.notEqual(first.world.winner, null);
+  assert.equal(first.world.endReason, 'crystal-destroyed');
+  assert.ok(first.world.entities.length < entityCeiling);
+  assert.ok(deadMinions <= 20);
+  assert.ok(first.world.events.length <= MAX_EVENT_HISTORY);
+  assert.deepEqual(first.world, second.world);
+  for (const hero of first.world.entities.filter((unit) => unit.kind === 'hero')) {
+    assert.equal(getLoggedGoldBalance(first.world, hero.id), hero.gold);
+  }
+  console.log('P2-fix-5 30m seed=20261119 steps=36000 ' + JSON.stringify({
+    elapsedMs: first.elapsedMs,
+    secondElapsedMs: second.elapsedMs,
+    terminalTick: first.world.tick,
+    entityCount: first.world.entities.length,
+    deadMinionCount: deadMinions,
+    eventCount: first.world.events.length,
+    eventSequence: first.world.eventSequence,
+    prunedEventCount: first.world.eventSequence - first.world.events.length,
+    requestedStepCap: 36000,
+    entityCeiling,
+    eventCeiling: MAX_EVENT_HISTORY,
+  }));
+});

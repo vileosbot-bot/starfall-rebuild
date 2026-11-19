@@ -4,6 +4,9 @@ export const FIRST_WAVE_TICK = 200;
 export const PASSIVE_GOLD_START_TICK = 200;
 export const WAVE_INTERVAL_TICKS = 600;
 export const MAX_HERO_LEVEL = 10;
+export const MINION_CORPSE_GRACE_TICKS = 200;
+export const MAX_EVENT_HISTORY = 5000;
+const EVENT_HISTORY_PRUNE_BATCH = 1000;
 
 export type Team = 'blue' | 'red';
 export type Faction = Team | 'neutral';
@@ -92,6 +95,7 @@ export interface SimEntity {
   alive: boolean;
   respawnTicks: number;
   respawnDurationTicks: number;
+  deathTick?: number;
   bountyGold: number;
   bountyExperience: number;
   critChance: number;
@@ -104,6 +108,7 @@ export interface SimEntity {
 }
 
 export interface SimEvent {
+  sequence: number;
   tick: number;
   type: SimEventType;
   sourceId?: string;
@@ -136,6 +141,7 @@ export interface Simulation {
   winner: Team | null;
   endReason: 'crystal-destroyed' | null;
   events: SimEvent[];
+  eventSequence: number;
   playerHeroId: string | null;
   firstBloodAwarded: boolean;
   damageContributions: Record<string, Record<string, number>>;
@@ -299,8 +305,24 @@ function distance(a: Position, b: Position): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function addEvent(world: Simulation, event: Omit<SimEvent, 'tick'>): void {
-  world.events.push({ tick: world.tick, simSeconds: world.tick * FIXED_STEP_SECONDS, ...event });
+function addEvent(world: Simulation, event: Omit<SimEvent, 'tick' | 'sequence'>): void {
+  world.eventSequence += 1;
+  world.events.push({ sequence: world.eventSequence, tick: world.tick, simSeconds: world.tick * FIXED_STEP_SECONDS, ...event });
+  if (world.events.length > MAX_EVENT_HISTORY) {
+    const retainedLength = MAX_EVENT_HISTORY - EVENT_HISTORY_PRUNE_BATCH;
+    world.events.splice(0, world.events.length - retainedLength);
+  }
+}
+
+export function getEventsAfterSequence(world: Pick<Simulation, 'events'>, afterSequence: number): SimEvent[] {
+  let low = 0;
+  let high = world.events.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (world.events[middle].sequence <= afterSequence) low = middle + 1;
+    else high = middle;
+  }
+  return world.events.slice(low);
 }
 
 function nextRandom(world: Simulation): number {
@@ -478,6 +500,7 @@ export function createSimulation(seed = 1, playerRole?: HeroRole): Simulation {
     winner: null,
     endReason: null,
     events: [],
+    eventSequence: 0,
     playerHeroId: playerRole ? 'blue-hero-' + playerRole : null,
     firstBloodAwarded: false,
     damageContributions: {},
@@ -943,6 +966,7 @@ function killEntity(world: Simulation, attacker: SimEntity, target: SimEntity): 
   if (!target.alive) return;
   target.alive = false;
   target.hp = 0;
+  if (target.kind === 'minion') target.deathTick = world.tick;
   if (target.id === world.playerHeroId) cancelPlayerChannel(world, target, 'death');
 
   if (target.kind === 'hero') {
@@ -1384,6 +1408,21 @@ function respawnEntities(world: Simulation): void {
   }
 }
 
+function reclaimExpiredMinions(world: Simulation): void {
+  const removedIds = new Set<string>();
+  world.entities = world.entities.filter((entity) => {
+    const expired = entity.kind === 'minion' && !entity.alive && entity.deathTick !== undefined &&
+      world.tick - entity.deathTick >= MINION_CORPSE_GRACE_TICKS;
+    if (expired) removedIds.add(entity.id);
+    return !expired;
+  });
+  if (removedIds.size === 0) return;
+  for (const id of removedIds) delete world.damageContributions[id];
+  for (const contributions of Object.values(world.damageContributions)) {
+    for (const id of removedIds) delete contributions[id];
+  }
+}
+
 export function stepSimulation(world: Simulation, steps = 1, command?: PlayerCommand): Simulation {
   if (!Number.isInteger(steps) || steps < 0) {
     throw new RangeError('steps must be a non-negative integer');
@@ -1431,6 +1470,7 @@ export function stepSimulation(world: Simulation, steps = 1, command?: PlayerCom
         });
       }
     }
+    reclaimExpiredMinions(world);
   }
   return world;
 }
