@@ -393,10 +393,11 @@ export function createSimulation(seed = 1): Simulation {
     });
   }
 
-  world.entities.push(createTower('blue', 1, -8));
-  world.entities.push(createTower('blue', 2, -4));
-  world.entities.push(createTower('red', 1, 8));
-  world.entities.push(createTower('red', 2, 4));
+  // Outer towers guard the lane nearer the river; inner towers protect each base.
+  world.entities.push(createTower('blue', 1, -4));
+  world.entities.push(createTower('blue', 2, -8));
+  world.entities.push(createTower('red', 1, 4));
+  world.entities.push(createTower('red', 2, 8));
   world.entities.push(createCrystal('blue'));
   world.entities.push(createCrystal('red'));
   world.entities.push(createMonster('sentinel'));
@@ -481,8 +482,16 @@ function findStructureTarget(world: Simulation, origin: SimEntity): SimEntity | 
 
 function selectTarget(world: Simulation, actor: SimEntity): SimEntity | null {
   if (actor.team === 'neutral') {
-    const prey = world.entities.filter((entity) => entity.alive && entity.team !== 'neutral' && (entity.kind === 'hero' || entity.kind === 'minion'));
-    return nearestEntity(actor, prey, actor.aggroRange);
+    const rankedPrey = world.entities
+      .filter((entity) => entity.alive && entity.team !== 'neutral' && (entity.kind === 'hero' || entity.kind === 'minion'))
+      .map((entity) => ({ entity, range: distance(actor.position, entity.position) }))
+      .filter((entry) => entry.range <= actor.aggroRange)
+      .sort((a, b) => a.range - b.range || (a.entity.id < b.entity.id ? -1 : a.entity.id > b.entity.id ? 1 : 0));
+    const nearest = rankedPrey[0];
+    if (!nearest) return null;
+    // Ignore a cross-team near-tie within one melee-minion fixed-step movement (1.75 * 0.05).
+    if (rankedPrey.some((entry) => entry.entity.team !== nearest.entity.team && entry.range - nearest.range <= 0.0875)) return null;
+    return nearest.entity;
   }
 
   const enemy = oppositeTeam(actor.team);
@@ -513,10 +522,14 @@ function selectTarget(world: Simulation, actor: SimEntity): SimEntity | null {
     const minions = alive.filter((entity) => entity.kind === 'minion');
     const minionTarget = nearestEntity(actor, minions, actor.aggroRange);
     if (minionTarget) return minionTarget;
+    const structure = findStructureTarget(world, actor);
+    // Once a minion reaches its structure's lane pocket, it stays on the siege target
+    // instead of being pulled away by a nearby defending hero.
+    if (structure && distance(actor.position, structure.position) <= actor.aggroRange) return structure;
     const heroes = alive.filter((entity) => entity.kind === 'hero');
     const heroTarget = nearestEntity(actor, heroes, actor.aggroRange);
     if (heroTarget) return heroTarget;
-    return findStructureTarget(world, actor);
+    return structure;
   }
 
   return null;
@@ -649,12 +662,24 @@ function purchaseRecommendedEquipment(world: Simulation, hero: SimEntity): void 
   }
 }
 
+function hasFriendlyMinionInTowerRange(world: Simulation, hero: SimEntity, tower: SimEntity): boolean {
+  return world.entities.some((entity) =>
+    entity.alive && entity.kind === 'minion' && entity.team === hero.team &&
+    distance(entity.position, tower.position) <= tower.attackRange
+  );
+}
+
 function findHeroCombatTarget(world: Simulation, hero: SimEntity): SimEntity | null {
   const enemy = oppositeTeam(hero.team as Team);
   const enemyHeroes = world.entities
     .filter((entity) => entity.alive && entity.team === enemy && entity.kind === 'hero')
     .map((entity) => ({ entity, range: distance(hero.position, entity.position) }))
-    .filter((entry) => entry.range <= VISION_RANGE && entry.entity.hp / entry.entity.maxHp <= AI_RULES.lowHealthEnemyHeroRatio)
+    // Execute local threats, and intercept wounded heroes that have crossed onto our half.
+    .filter((entry) =>
+      (entry.range <= AI_RULES.minionSearchRange ||
+        (hero.team === 'blue' ? entry.entity.position.x < 0 : entry.entity.position.x > 0)) &&
+      entry.entity.hp / entry.entity.maxHp <= AI_RULES.lowHealthEnemyHeroRatio
+    )
     .sort((a, b) => a.entity.hp - b.entity.hp || a.range - b.range || (a.entity.id < b.entity.id ? -1 : a.entity.id > b.entity.id ? 1 : 0));
   if (enemyHeroes.length > 0) return enemyHeroes[0].entity;
 
@@ -664,25 +689,21 @@ function findHeroCombatTarget(world: Simulation, hero: SimEntity): SimEntity | n
   const minionTarget = nearestEntity(hero, enemyMinions, AI_RULES.minionSearchRange);
   if (minionTarget) return minionTarget;
 
+  // The escorted structure takes priority over optional jungle farming. The minion
+  // inside tower range is the explicit tanking window that authorizes hero damage.
+  const structure = findStructureTarget(world, hero);
+  if (structure?.kind === 'tower') {
+    return hasFriendlyMinionInTowerRange(world, hero, structure) ? structure : null;
+  }
+  if (structure) return structure;
+
   if (hero.hp / hero.maxHp >= AI_RULES.healthyMonsterHealthRatio) {
     const monsters = world.entities.filter((entity) =>
       entity.alive && entity.team === 'neutral' && entity.kind === 'monster'
     );
-    const monsterTarget = nearestEntity(hero, monsters, AI_RULES.monsterSearchRange);
-    if (monsterTarget) return monsterTarget;
+    return nearestEntity(hero, monsters, AI_RULES.monsterSearchRange);
   }
-
-  const structure = findStructureTarget(world, hero);
-  if (!structure) return null;
-  if (structure.kind === 'tower') {
-    const friendlyMinionTanking = world.entities.some((entity) =>
-      entity.alive && entity.kind === 'minion' && entity.team === hero.team &&
-      distance(entity.position, structure.position) <= structure.attackRange
-    );
-    // Never choose a tower as an attack target unless a friendly minion is inside its range.
-    if (!friendlyMinionTanking) return null;
-  }
-  return structure;
+  return null;
 }
 
 function updateHeroAI(world: Simulation, hero: SimEntity): void {
@@ -727,18 +748,22 @@ function updateHeroAI(world: Simulation, hero: SimEntity): void {
   }
 
   setHeroBehavior(world, hero, 'push');
-  const friendlyMinions = world.entities.filter((entity) =>
-    entity.alive && entity.kind === 'minion' && entity.team === hero.team
-  );
-  const nearbyMinion = nearestEntity(hero, friendlyMinions, 8);
-  if (nearbyMinion) {
-    moveTowardsPoint(hero, nearbyMinion.position, Math.max(1.5, hero.attackRange * 0.6));
+  const pushDirection = hero.team === 'blue' ? 1 : -1;
+  const leadingMinion = world.entities
+    .filter((entity) =>
+      entity.alive && entity.kind === 'minion' && entity.team === hero.team &&
+      distance(hero.position, entity.position) <= 8
+    )
+    .sort((a, b) => pushDirection * (b.position.x - a.position.x) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
+  if (leadingMinion) {
+    // Escort the most advanced allied minion instead of orbiting the nearest rear minion.
+    moveTowardsPoint(hero, leadingMinion.position, Math.max(1.5, hero.attackRange * 0.6));
     return;
   }
 
   const nextStructure = findStructureTarget(world, hero);
   if (nextStructure?.kind === 'tower') {
-    // Stage outside tower range until the next allied minion wave can absorb tower fire.
+    // Stage outside the approved 5.8 tower range plus the existing 0.6 safety buffer.
     const safeDistance = nextStructure.attackRange + 0.6;
     moveAwayFromPoint(hero, nextStructure.position, safeDistance);
     moveTowardsPoint(hero, nextStructure.position, safeDistance);
@@ -799,7 +824,12 @@ export function stepSimulation(world: Simulation, steps = 1): Simulation {
     if (world.tick % WAVE_INTERVAL_TICKS === 0) spawnWave(world);
     respawnEntities(world);
 
-    const actors = [...world.entities].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const firstTeam: Team = world.tick % 2 === 0 ? 'blue' : 'red';
+    const teamRank = (team: Faction): number =>
+      team === 'neutral' ? 2 : team === firstTeam ? 0 : 1;
+    const actors = [...world.entities].sort((a, b) =>
+      teamRank(a.team) - teamRank(b.team) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    );
     for (const actor of actors) {
       if (world.winner !== null) break;
       updateActor(world, actor);

@@ -154,6 +154,7 @@ test('towers automatically attack enemy minions inside their range', () => {
   const target = world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
   assert.ok(target);
   tower.position = { x: 0, y: 0 };
+  entity(world, 'blue-tower-1').position = { x: -30, y: 0 };
   tower.attackRange = 6;
   tower.cooldownRemaining = 0;
   target.position = { x: 1, y: 0 };
@@ -162,6 +163,71 @@ test('towers automatically attack enemy minions inside their range', () => {
   stepSimulation(world, 1);
   assert.equal(target.alive, false);
   assert.ok(world.events.some((event) => event.type === 'attack' && event.sourceId === tower.id && event.targetId === target.id));
+});
+
+test('outer tower is nearer the lane center and is selected before the inner tower', () => {
+  const world = createSimulation(24);
+  stepSimulation(world, 1);
+  const outer = entity(world, 'red-tower-1');
+  const inner = entity(world, 'red-tower-2');
+  assert.equal(outer.position.x, 4);
+  assert.equal(inner.position.x, 8);
+  assert.ok(Math.abs(outer.position.x) < Math.abs(inner.position.x));
+
+  const attacker = entity(world, 'blue-hero-ranger');
+  attacker.position = { x: 0, y: 0 };
+  attacker.attackRange = 5;
+  attacker.attackDamage = 2000;
+  attacker.critChance = 0;
+  attacker.cooldownRemaining = 0;
+  outer.hp = 1;
+  inner.hp = 1;
+
+  for (const unit of world.entities) {
+    if (unit.kind === 'monster' || (unit.kind === 'hero' && unit.id !== attacker.id) || unit.team === 'red') {
+      if (unit.kind !== 'tower') {
+        unit.alive = false;
+        unit.hp = 0;
+        unit.respawnTicks = 0;
+      }
+    }
+    if (unit.kind === 'minion') {
+      unit.alive = false;
+      unit.hp = 0;
+    }
+  }
+  const escort = world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'blue');
+  assert.ok(escort);
+  escort.alive = true;
+  escort.hp = 100000;
+  escort.position = { x: 4, y: 0 };
+
+  stepSimulation(world, 1);
+  const destroyed = world.events.filter((event) => event.type === 'tower-destroyed');
+  assert.equal(destroyed[0]?.targetId, outer.id);
+  assert.equal(inner.alive, true);
+});
+
+test('neutral monsters do not choose a side when the nearest blue and red units are within one step of a tie', () => {
+  const world = createSimulation(25);
+  stepSimulation(world, 1);
+  const blue = entity(world, 'blue-hero-vanguard');
+  const red = entity(world, 'red-hero-vanguard');
+  for (const unit of world.entities) {
+    if (unit.kind === 'minion' || (unit.kind === 'hero' && unit.id !== blue.id && unit.id !== red.id)) {
+      unit.alive = false;
+      unit.hp = 0;
+      unit.respawnTicks = 0;
+    }
+  }
+  blue.position = { x: -1, y: -3.4 };
+  red.position = { x: 1, y: -3.4 };
+  blue.moveSpeed = 0;
+  red.moveSpeed = 0;
+  blue.attackRange = 0;
+  red.attackRange = 0;
+  stepSimulation(world, 1);
+  assert.equal(world.events.filter((event) => event.type === 'attack' && event.sourceId?.startsWith('neutral-')).length, 0);
 });
 
 test('low-health hero enters retreat state and moves toward its own crystal', () => {
@@ -310,9 +376,36 @@ test('hero attacks a tower only while a friendly minion is inside its range', ()
   assert.ok(world.events.some((event) => event.type === 'attack' && event.sourceId === hero.id && event.targetId === tower.id));
 });
 
-test('ten-minute simulation produces measurable tower progress', () => {
+test('the three specified ten-minute seeds produce tower destruction', () => {
+  const results = [20261119, 20261120, 20261121].map((seed) => {
+    const world = createSimulation(seed);
+    stepSimulation(world, 12000);
+    return {
+      seed,
+      destroyedTowers: world.events.filter((event) => event.type === 'tower-destroyed').length,
+      winner: world.winner,
+    };
+  });
+  assert.ok(results.every((result) => result.destroyedTowers > 0), JSON.stringify(results));
+});
+
+test('the 30-minute natural match destroys towers and a crystal, declares a winner, stops, and is deterministic', () => {
   const world = createSimulation(20261119);
-  stepSimulation(world, 12000);
-  const towers = world.entities.filter((unit) => unit.kind === 'tower');
-  assert.ok(towers.some((tower) => tower.hp < tower.maxHp || !tower.alive));
+  const repeat = createSimulation(20261119);
+  stepSimulation(world, 36000);
+  stepSimulation(repeat, 36000);
+
+  assert.deepEqual(world, repeat);
+  assert.ok(world.events.some((event) => event.type === 'tower-destroyed'));
+  const crystalEvent = world.events.find((event) => event.type === 'crystal-destroyed');
+  assert.ok(crystalEvent);
+  assert.equal(world.winner, crystalEvent.team);
+  assert.equal(world.endReason, 'crystal-destroyed');
+  assert.ok(world.tick < 36000, 'the game should stop at the crystal result instead of running to the requested cap');
+
+  const terminalTick = world.tick;
+  const terminalEventCount = world.events.length;
+  stepSimulation(world, 1000);
+  assert.equal(world.tick, terminalTick);
+  assert.equal(world.events.length, terminalEventCount);
 });
