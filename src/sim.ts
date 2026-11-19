@@ -8,9 +8,10 @@ export type Faction = Team | 'neutral';
 export type UnitKind = 'hero' | 'minion' | 'monster' | 'tower' | 'crystal';
 export type DamageType = 'physical' | 'magic';
 export type HeroRole = 'vanguard' | 'ranger' | 'arcanist' | 'duelist' | 'guardian';
+export type HeroBehavior = 'push' | 'farm' | 'retreat' | 'heal';
 export type MinionType = 'melee' | 'ranged';
 export type MonsterType = 'sentinel' | 'brute';
-export type EquipmentId = 'ember-blade' | 'tide-ward' | 'star-core';
+export type EquipmentId = 'ember-blade' | 'gale-fang' | 'star-core' | 'moon-prism' | 'tide-ward' | 'bastion-plate';
 export type SimEventType =
   | 'wave-spawned'
   | 'attack'
@@ -20,7 +21,9 @@ export type SimEventType =
   | 'level-up'
   | 'tower-destroyed'
   | 'crystal-destroyed'
-  | 'item-purchased';
+  | 'item-purchased'
+  | 'passive-gold'
+  | 'ai-state-changed';
 
 export interface Position {
   x: number;
@@ -33,6 +36,7 @@ export interface SimEntity {
   kind: UnitKind;
   team: Faction;
   role?: HeroRole;
+  aiState?: HeroBehavior;
   minionType?: MinionType;
   monsterType?: MonsterType;
   towerIndex?: number;
@@ -88,6 +92,7 @@ export interface Simulation {
 
 export interface EquipmentDefinition {
   id: EquipmentId;
+  category: 'physical' | 'magic' | 'defense';
   name: string;
   cost: number;
   attackDamage: number;
@@ -100,38 +105,54 @@ export interface EquipmentDefinition {
 
 export const EQUIPMENT: Record<EquipmentId, EquipmentDefinition> = {
   'ember-blade': {
-    id: 'ember-blade',
-    name: 'Ember Blade',
-    cost: 180,
-    attackDamage: 20,
-    magicPower: 0,
-    maxHp: 0,
-    armor: 0,
-    resistance: 0,
-    moveSpeed: 0,
+    id: 'ember-blade', category: 'physical', name: 'Ember Blade', cost: 180,
+    attackDamage: 20, magicPower: 0, maxHp: 0, armor: 0, resistance: 0, moveSpeed: 0,
   },
-  'tide-ward': {
-    id: 'tide-ward',
-    name: 'Tide Ward',
-    cost: 160,
-    attackDamage: 0,
-    magicPower: 0,
-    maxHp: 160,
-    armor: 8,
-    resistance: 4,
-    moveSpeed: 0,
+  'gale-fang': {
+    id: 'gale-fang', category: 'physical', name: 'Gale Fang', cost: 240,
+    attackDamage: 32, magicPower: 0, maxHp: 0, armor: 0, resistance: 0, moveSpeed: 0.15,
   },
   'star-core': {
-    id: 'star-core',
-    name: 'Star Core',
-    cost: 190,
-    attackDamage: 0,
-    magicPower: 24,
-    maxHp: 0,
-    armor: 0,
-    resistance: 6,
-    moveSpeed: 0,
+    id: 'star-core', category: 'magic', name: 'Star Core', cost: 190,
+    attackDamage: 0, magicPower: 24, maxHp: 0, armor: 0, resistance: 6, moveSpeed: 0,
   },
+  'moon-prism': {
+    id: 'moon-prism', category: 'magic', name: 'Moon Prism', cost: 250,
+    attackDamage: 0, magicPower: 34, maxHp: 80, armor: 0, resistance: 4, moveSpeed: 0,
+  },
+  'tide-ward': {
+    id: 'tide-ward', category: 'defense', name: 'Tide Ward', cost: 160,
+    attackDamage: 0, magicPower: 0, maxHp: 160, armor: 8, resistance: 4, moveSpeed: 0,
+  },
+  'bastion-plate': {
+    id: 'bastion-plate', category: 'defense', name: 'Bastion Plate', cost: 230,
+    attackDamage: 0, magicPower: 0, maxHp: 240, armor: 14, resistance: 10, moveSpeed: 0,
+  },
+};
+
+// AI policy: retreat below 35% HP; execute nearby enemy heroes at or below 50% HP; farm minions
+// within 4 units; jungle only above 65% HP without enemies; heal 30 HP/s within 2.2 units of base.
+// Passive income grants each living hero +2 gold every 20 ticks (1 simulated second).
+export const AI_RULES = {
+  retreatHealthRatio: 0.35,
+  lowHealthEnemyHeroRatio: 0.5,
+  minionSearchRange: 4.0,
+  healPerSecond: 30,
+  fountainRadius: 2.2,
+  healthyMonsterHealthRatio: 0.65,
+  monsterSearchRange: 4.6,
+  passiveGoldIntervalTicks: 20,
+  passiveGoldAmount: 2,
+} as const;
+
+// Each role has a deterministic three-item recommendation; the purchase API still caps
+// each individual hero at three distinct items even though the shared catalog has six.
+export const HERO_PURCHASE_ORDER: Record<HeroRole, readonly EquipmentId[]> = {
+  vanguard: ['tide-ward', 'ember-blade', 'bastion-plate'],
+  ranger: ['ember-blade', 'gale-fang', 'tide-ward'],
+  arcanist: ['star-core', 'moon-prism', 'tide-ward'],
+  duelist: ['gale-fang', 'ember-blade', 'tide-ward'],
+  guardian: ['tide-ward', 'bastion-plate', 'ember-blade'],
 };
 
 interface HeroTemplate {
@@ -213,6 +234,7 @@ function createHero(team: Team, template: HeroTemplate, index: number): SimEntit
     kind: 'hero',
     team,
     role: template.role,
+    aiState: 'push',
     position: { x: spawnX, y: HERO_LANE_OFFSETS[index] },
     hp: template.maxHp,
     maxHp: template.maxHp,
@@ -450,8 +472,10 @@ function nearestEntity(
 function findStructureTarget(world: Simulation, origin: SimEntity): SimEntity | null {
   if (origin.team === 'neutral') return null;
   const enemy = oppositeTeam(origin.team);
-  const towers = world.entities.filter((entity) => entity.kind === 'tower' && entity.team === enemy && entity.alive);
-  if (towers.length > 0) return nearestEntity(origin, towers);
+  const towers = world.entities
+    .filter((entity) => entity.kind === 'tower' && entity.team === enemy && entity.alive)
+    .sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
+  if (towers.length > 0) return towers[0];
   return world.entities.find((entity) => entity.kind === 'crystal' && entity.team === enemy && entity.alive) ?? null;
 }
 
@@ -584,9 +608,153 @@ function moveTowards(actor: SimEntity, target: SimEntity): void {
   actor.position.y += (dy / currentDistance) * movement;
 }
 
+function setHeroBehavior(world: Simulation, hero: SimEntity, next: HeroBehavior): void {
+  if (hero.aiState === next) return;
+  const previous = hero.aiState ?? 'push';
+  hero.aiState = next;
+  addEvent(world, { type: 'ai-state-changed', sourceId: hero.id, team: hero.team as Team, detail: previous + '->' + next });
+}
+
+function moveTowardsPoint(actor: SimEntity, target: Position, stopDistance = 0): void {
+  const dx = target.x - actor.position.x;
+  const dy = target.y - actor.position.y;
+  const currentDistance = Math.sqrt(dx * dx + dy * dy);
+  const desiredMovement = Math.max(0, currentDistance - stopDistance);
+  const movement = Math.min(actor.moveSpeed * FIXED_STEP_SECONDS, desiredMovement);
+  if (currentDistance === 0 || movement <= 0) return;
+  actor.position.x += (dx / currentDistance) * movement;
+  actor.position.y += (dy / currentDistance) * movement;
+}
+
+function moveAwayFromPoint(actor: SimEntity, threat: Position, minimumDistance: number): void {
+  const dx = actor.position.x - threat.x;
+  const dy = actor.position.y - threat.y;
+  const currentDistance = Math.sqrt(dx * dx + dy * dy);
+  if (currentDistance >= minimumDistance) return;
+  const fallbackX = actor.team === 'blue' ? -1 : 1;
+  const nx = currentDistance === 0 ? fallbackX : dx / currentDistance;
+  const ny = currentDistance === 0 ? 0 : dy / currentDistance;
+  const movement = Math.min(actor.moveSpeed * FIXED_STEP_SECONDS, minimumDistance - currentDistance);
+  actor.position.x += nx * movement;
+  actor.position.y += ny * movement;
+}
+
+function purchaseRecommendedEquipment(world: Simulation, hero: SimEntity): void {
+  if (!hero.role || !hero.alive) return;
+  const order = HERO_PURCHASE_ORDER[hero.role];
+  while (hero.inventory.length < 3) {
+    const nextItem = order.find((equipmentId) => !hero.inventory.includes(equipmentId));
+    if (!nextItem || hero.gold < EQUIPMENT[nextItem].cost) return;
+    if (!purchaseEquipment(world, hero.id, nextItem)) return;
+  }
+}
+
+function findHeroCombatTarget(world: Simulation, hero: SimEntity): SimEntity | null {
+  const enemy = oppositeTeam(hero.team as Team);
+  const enemyHeroes = world.entities
+    .filter((entity) => entity.alive && entity.team === enemy && entity.kind === 'hero')
+    .map((entity) => ({ entity, range: distance(hero.position, entity.position) }))
+    .filter((entry) => entry.range <= VISION_RANGE && entry.entity.hp / entry.entity.maxHp <= AI_RULES.lowHealthEnemyHeroRatio)
+    .sort((a, b) => a.entity.hp - b.entity.hp || a.range - b.range || (a.entity.id < b.entity.id ? -1 : a.entity.id > b.entity.id ? 1 : 0));
+  if (enemyHeroes.length > 0) return enemyHeroes[0].entity;
+
+  const enemyMinions = world.entities.filter((entity) =>
+    entity.alive && entity.team === enemy && entity.kind === 'minion'
+  );
+  const minionTarget = nearestEntity(hero, enemyMinions, AI_RULES.minionSearchRange);
+  if (minionTarget) return minionTarget;
+
+  if (hero.hp / hero.maxHp >= AI_RULES.healthyMonsterHealthRatio) {
+    const monsters = world.entities.filter((entity) =>
+      entity.alive && entity.team === 'neutral' && entity.kind === 'monster'
+    );
+    const monsterTarget = nearestEntity(hero, monsters, AI_RULES.monsterSearchRange);
+    if (monsterTarget) return monsterTarget;
+  }
+
+  const structure = findStructureTarget(world, hero);
+  if (!structure) return null;
+  if (structure.kind === 'tower') {
+    const friendlyMinionTanking = world.entities.some((entity) =>
+      entity.alive && entity.kind === 'minion' && entity.team === hero.team &&
+      distance(entity.position, structure.position) <= structure.attackRange
+    );
+    // Never choose a tower as an attack target unless a friendly minion is inside its range.
+    if (!friendlyMinionTanking) return null;
+  }
+  return structure;
+}
+
+function updateHeroAI(world: Simulation, hero: SimEntity): void {
+  const home = world.entities.find((entity) => entity.kind === 'crystal' && entity.team === hero.team);
+  if (!home) return;
+
+  if (hero.aiState !== 'retreat' && hero.aiState !== 'heal' && hero.hp / hero.maxHp < AI_RULES.retreatHealthRatio) {
+    setHeroBehavior(world, hero, 'retreat');
+  }
+  if (hero.aiState !== 'retreat' && hero.aiState !== 'heal') purchaseRecommendedEquipment(world, hero);
+
+  if (hero.aiState === 'retreat') {
+    if (distance(hero.position, home.position) <= AI_RULES.fountainRadius) {
+      setHeroBehavior(world, hero, 'heal');
+    } else {
+      moveTowardsPoint(hero, home.position, AI_RULES.fountainRadius);
+      return;
+    }
+  }
+
+  if (hero.aiState === 'heal') {
+    if (distance(hero.position, home.position) > AI_RULES.fountainRadius) {
+      setHeroBehavior(world, hero, 'retreat');
+      moveTowardsPoint(hero, home.position, AI_RULES.fountainRadius);
+      return;
+    }
+    hero.hp = Math.min(hero.maxHp, hero.hp + AI_RULES.healPerSecond * FIXED_STEP_SECONDS);
+    if (hero.hp >= hero.maxHp) setHeroBehavior(world, hero, 'push');
+    return;
+  }
+
+  const target = findHeroCombatTarget(world, hero);
+  if (target) {
+    setHeroBehavior(world, hero, target.kind === 'tower' || target.kind === 'crystal' ? 'push' : 'farm');
+    const range = distance(hero.position, target.position);
+    if (range <= hero.attackRange) {
+      if (hero.cooldownRemaining === 0) performAttack(world, hero, target);
+    } else {
+      moveTowards(hero, target);
+    }
+    return;
+  }
+
+  setHeroBehavior(world, hero, 'push');
+  const friendlyMinions = world.entities.filter((entity) =>
+    entity.alive && entity.kind === 'minion' && entity.team === hero.team
+  );
+  const nearbyMinion = nearestEntity(hero, friendlyMinions, 8);
+  if (nearbyMinion) {
+    moveTowardsPoint(hero, nearbyMinion.position, Math.max(1.5, hero.attackRange * 0.6));
+    return;
+  }
+
+  const nextStructure = findStructureTarget(world, hero);
+  if (nextStructure?.kind === 'tower') {
+    // Stage outside tower range until the next allied minion wave can absorb tower fire.
+    const safeDistance = nextStructure.attackRange + 0.6;
+    moveAwayFromPoint(hero, nextStructure.position, safeDistance);
+    moveTowardsPoint(hero, nextStructure.position, safeDistance);
+  } else if (nextStructure) {
+    moveTowards(hero, nextStructure);
+  }
+}
+
 function updateActor(world: Simulation, actor: SimEntity): void {
   if (!actor.alive || actor.kind === 'crystal') return;
   if (actor.cooldownRemaining > 0) actor.cooldownRemaining -= 1;
+
+  if (actor.kind === 'hero') {
+    updateHeroAI(world, actor);
+    return;
+  }
 
   const target = selectTarget(world, actor);
   if (!target) return;
@@ -608,6 +776,7 @@ function respawnEntities(world: Simulation): void {
     entity.hp = entity.maxHp;
     entity.cooldownRemaining = 0;
     if (entity.kind === 'hero' && entity.team !== 'neutral') {
+      entity.aiState = 'push';
       entity.position = {
         x: entity.team === 'blue' ? -10.8 : 10.8,
         y: entity.role ? HERO_LANE_OFFSETS[HERO_TEMPLATES.findIndex((template) => template.role === entity.role)] ?? 0 : 0,
@@ -638,6 +807,16 @@ export function stepSimulation(world: Simulation, steps = 1): Simulation {
 
     if (world.winner !== null) break;
     world.tick += 1;
+    if (world.tick % AI_RULES.passiveGoldIntervalTicks === 0) {
+      for (const hero of world.entities) {
+        if (hero.kind !== 'hero' || !hero.alive) continue;
+        hero.gold += AI_RULES.passiveGoldAmount;
+        addEvent(world, {
+          type: 'passive-gold', sourceId: hero.id, team: hero.team as Team,
+          amount: AI_RULES.passiveGoldAmount, detail: 'every-20-ticks',
+        });
+      }
+    }
   }
   return world;
 }
@@ -645,7 +824,7 @@ export function stepSimulation(world: Simulation, steps = 1): Simulation {
 export function purchaseEquipment(world: Simulation, heroId: string, equipmentId: EquipmentId): boolean {
   const hero = world.entities.find((entity) => entity.id === heroId);
   const item = EQUIPMENT[equipmentId];
-  if (!hero || hero.kind !== 'hero' || !hero.alive) return false;
+  if (!hero || hero.kind !== 'hero' || !hero.alive || !item) return false;
   if (hero.inventory.includes(equipmentId) || hero.inventory.length >= 3 || hero.gold < item.cost) return false;
 
   hero.gold -= item.cost;

@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AI_RULES,
+  EQUIPMENT,
   FIXED_STEP_SECONDS,
+  HERO_PURCHASE_ORDER,
   WAVE_INTERVAL_TICKS,
   calculateDamage,
   createSimulation,
@@ -136,6 +139,7 @@ test('equipment purchase applies original item stats and prevents duplicate purc
 test('living heroes move by a deterministic fixed-step amount', () => {
   const world = createSimulation(19);
   const hero = entity(world, 'blue-hero-vanguard');
+  hero.position = { x: -12, y: -1.45 };
   const before = hero.position.x;
   stepSimulation(world, 1);
   assert.ok(hero.position.x > before);
@@ -158,4 +162,157 @@ test('towers automatically attack enemy minions inside their range', () => {
   stepSimulation(world, 1);
   assert.equal(target.alive, false);
   assert.ok(world.events.some((event) => event.type === 'attack' && event.sourceId === tower.id && event.targetId === target.id));
+});
+
+test('low-health hero enters retreat state and moves toward its own crystal', () => {
+  const world = createSimulation(29);
+  const hero = entity(world, 'blue-hero-vanguard');
+  hero.position = { x: 0, y: 0 };
+  hero.hp = hero.maxHp * (AI_RULES.retreatHealthRatio - 0.01);
+  stepSimulation(world, 1);
+  assert.equal(hero.aiState, 'retreat');
+  assert.ok(hero.position.x < 0);
+});
+
+test('hero heals at its fountain and leaves only after reaching full health', () => {
+  const world = createSimulation(31);
+  const hero = entity(world, 'blue-hero-ranger');
+  hero.position = { x: -13.5, y: 0 };
+  hero.aiState = 'heal';
+  hero.hp = hero.maxHp - 100;
+  stepSimulation(world, 20);
+  assert.equal(hero.hp, hero.maxHp - 70);
+  assert.equal(hero.aiState, 'heal');
+  stepSimulation(world, 47);
+  assert.equal(hero.hp, hero.maxHp);
+  assert.equal(hero.aiState, 'push');
+});
+
+test('AI automatically buys the first role-recommended item when affordable', () => {
+  const world = createSimulation(37);
+  const hero = entity(world, 'blue-hero-ranger');
+  hero.gold = EQUIPMENT['ember-blade'].cost;
+  stepSimulation(world, 1);
+  assert.deepEqual(hero.inventory, [HERO_PURCHASE_ORDER.ranger[0]]);
+  assert.ok(world.events.some((event) => event.type === 'item-purchased' && event.sourceId === hero.id));
+});
+
+test('six-item catalog contains two original items in each category', () => {
+  const items = Object.values(EQUIPMENT);
+  assert.equal(items.length, 6);
+  assert.equal(items.filter((item) => item.category === 'physical').length, 2);
+  assert.equal(items.filter((item) => item.category === 'magic').length, 2);
+  assert.equal(items.filter((item) => item.category === 'defense').length, 2);
+  for (const order of Object.values(HERO_PURCHASE_ORDER)) assert.equal(order.length, 3);
+});
+
+test('AI executes the lowest-health nearby enemy hero before minions, otherwise farms the nearest minion', () => {
+  const executeWorld = createSimulation(59);
+  stepSimulation(executeWorld, 1);
+  const executor = entity(executeWorld, 'blue-hero-vanguard');
+  const lowHero = entity(executeWorld, 'red-hero-vanguard');
+  const otherLowHero = entity(executeWorld, 'red-hero-ranger');
+  const minion = executeWorld.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
+  assert.ok(minion);
+  executor.position = { x: 0, y: 0 };
+  executor.attackRange = 2;
+  executor.attackDamage = 2000;
+  executor.critChance = 0;
+  lowHero.position = { x: 1, y: 0 };
+  lowHero.hp = 80;
+  otherLowHero.position = { x: 1.2, y: 0 };
+  otherLowHero.hp = 120;
+  minion.position = { x: 0.5, y: 0 };
+  minion.hp = 10000;
+  stepSimulation(executeWorld, 1);
+  assert.ok(executeWorld.events.some((event) => event.type === 'attack' && event.sourceId === executor.id && event.targetId === lowHero.id));
+
+  const farmWorld = createSimulation(61);
+  stepSimulation(farmWorld, 1);
+  const farmer = entity(farmWorld, 'blue-hero-vanguard');
+  const healthyHero = entity(farmWorld, 'red-hero-vanguard');
+  const enemyMinion = farmWorld.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
+  assert.ok(enemyMinion);
+  farmer.position = { x: 0, y: 0 };
+  farmer.attackRange = 2;
+  farmer.attackDamage = 2000;
+  farmer.critChance = 0;
+  healthyHero.position = { x: 1, y: 0 };
+  enemyMinion.position = { x: 0.5, y: 0 };
+  enemyMinion.hp = 10000;
+  stepSimulation(farmWorld, 1);
+  assert.ok(farmWorld.events.some((event) => event.type === 'attack' && event.sourceId === farmer.id && event.targetId === enemyMinion.id));
+});
+
+test('purchase validation rejects insufficient gold, a full three-item inventory, duplicates, and dead heroes', () => {
+  const world = createSimulation(41);
+  const poor = entity(world, 'blue-hero-vanguard');
+  poor.gold = EQUIPMENT['gale-fang'].cost - 1;
+  assert.equal(purchaseEquipment(world, poor.id, 'gale-fang'), false);
+
+  const full = entity(world, 'blue-hero-ranger');
+  full.gold = 5000;
+  full.inventory = ['ember-blade', 'gale-fang', 'tide-ward'];
+  assert.equal(purchaseEquipment(world, full.id, 'star-core'), false);
+
+  const duplicate = entity(world, 'blue-hero-arcanist');
+  duplicate.gold = 5000;
+  assert.equal(purchaseEquipment(world, duplicate.id, 'star-core'), true);
+  assert.equal(purchaseEquipment(world, duplicate.id, 'star-core'), false);
+
+  const dead = entity(world, 'blue-hero-duelist');
+  dead.gold = 5000;
+  dead.alive = false;
+  assert.equal(purchaseEquipment(world, dead.id, 'gale-fang'), false);
+});
+
+test('passive gold is granted every 20 completed ticks', () => {
+  const world = createSimulation(43);
+  const hero = entity(world, 'blue-hero-guardian');
+  hero.position = { x: -13.5, y: 0 };
+  hero.aiState = 'heal';
+  hero.gold = 0;
+  stepSimulation(world, AI_RULES.passiveGoldIntervalTicks);
+  assert.equal(hero.gold, AI_RULES.passiveGoldAmount);
+  assert.equal(world.events.filter((event) => event.type === 'passive-gold' && event.sourceId === hero.id).length, 1);
+});
+
+test('hero does not attack a tower without a friendly minion tanking inside tower range', () => {
+  const world = createSimulation(47);
+  const hero = entity(world, 'blue-hero-ranger');
+  const tower = entity(world, 'red-tower-1');
+  hero.position = { x: 2, y: 0 };
+  hero.attackRange = 5;
+  for (const unit of world.entities) {
+    if (unit.kind === 'monster') { unit.alive = false; unit.hp = 0; }
+  }
+  stepSimulation(world, 1);
+  assert.equal(tower.hp, tower.maxHp);
+  assert.ok(!world.events.some((event) => event.type === 'attack' && event.sourceId === hero.id && event.targetId === tower.id));
+});
+
+test('hero attacks a tower only while a friendly minion is inside its range', () => {
+  const world = createSimulation(53);
+  const hero = entity(world, 'blue-hero-ranger');
+  const tower = entity(world, 'red-tower-1');
+  hero.position = { x: 2, y: 0 };
+  hero.attackRange = 5;
+  for (const unit of world.entities) {
+    if (unit.kind === 'monster') { unit.alive = false; unit.hp = 0; }
+  }
+  stepSimulation(world, 1);
+  const tank = world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'blue' && unit.alive);
+  assert.ok(tank);
+  tank.position = { x: tower.position.x - 2, y: 0 };
+  tank.hp = 100000;
+  stepSimulation(world, 30);
+  assert.ok(tower.hp < tower.maxHp);
+  assert.ok(world.events.some((event) => event.type === 'attack' && event.sourceId === hero.id && event.targetId === tower.id));
+});
+
+test('ten-minute simulation produces measurable tower progress', () => {
+  const world = createSimulation(20261119);
+  stepSimulation(world, 12000);
+  const towers = world.entities.filter((unit) => unit.kind === 'tower');
+  assert.ok(towers.some((tower) => tower.hp < tower.maxHp || !tower.alive));
 });
