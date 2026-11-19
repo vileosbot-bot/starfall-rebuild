@@ -1,5 +1,6 @@
 // @ts-ignore Three.js is kept as the only runtime dependency; no extra type package is added.
 import * as THREE from 'three';
+import type { Simulation } from './sim.ts';
 
 export function createRenderScene(container: HTMLElement) {
   const renderer = new THREE.WebGLRenderer({
@@ -9,7 +10,7 @@ export function createRenderScene(container: HTMLElement) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setClearColor(0x101820, 1);
   renderer.domElement.setAttribute('aria-label', 'Starfall 3D scene');
-  container.replaceChildren(renderer.domElement);
+  container.prepend(renderer.domElement);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x101820);
@@ -45,14 +46,7 @@ export function createRenderScene(container: HTMLElement) {
     new THREE.MeshStandardMaterial({ color: 0x4d9be8 }),
     new THREE.MeshStandardMaterial({ color: 0xe58b54 }),
   ];
-
-  const firstUnit = new THREE.Mesh(unitGeometry, unitMaterials[0]);
-  firstUnit.position.set(-3, 0.7, 0);
-  units.add(firstUnit);
-
-  const secondUnit = new THREE.Mesh(unitGeometry, unitMaterials[1]);
-  secondUnit.position.set(3, 0.7, 0);
-  units.add(secondUnit);
+  const unitMeshes = new Map<string, THREE.Mesh>();
 
   const resize = () => {
     const width = Math.max(container.clientWidth, 1);
@@ -74,12 +68,41 @@ export function createRenderScene(container: HTMLElement) {
     animationFrame = window.requestAnimationFrame(renderFrame);
   };
 
+  function syncSimulation(world: Simulation): void {
+    const visibleIds = new Set<string>();
+    for (const entity of world.entities) {
+      if (!entity.alive || entity.team === 'neutral') continue;
+      if (entity.kind !== 'hero' && entity.kind !== 'minion' && entity.kind !== 'tower' && entity.kind !== 'crystal') continue;
+      visibleIds.add(entity.id);
+
+      let mesh = unitMeshes.get(entity.id);
+      if (!mesh) {
+        const material = entity.team === 'blue' ? unitMaterials[0] : unitMaterials[1];
+        mesh = new THREE.Mesh(unitGeometry, material);
+        mesh.name = entity.id;
+        const scale = entity.kind === 'hero' ? 0.9 : entity.kind === 'minion' ? 0.38 : entity.kind === 'tower' ? 1.25 : 1.55;
+        mesh.scale.setScalar(scale);
+        units.add(mesh);
+        unitMeshes.set(entity.id, mesh);
+      }
+      const scale = entity.kind === 'hero' ? 0.9 : entity.kind === 'minion' ? 0.38 : entity.kind === 'tower' ? 1.25 : 1.55;
+      mesh.position.set(entity.position.x, 0.7 * scale, entity.position.y);
+    }
+
+    for (const [id, mesh] of unitMeshes) {
+      if (visibleIds.has(id)) continue;
+      units.remove(mesh);
+      unitMeshes.delete(id);
+    }
+  }
+
   return {
     start() {
       if (running) return;
       running = true;
       renderFrame();
     },
+    syncSimulation,
     dispose() {
       running = false;
       window.cancelAnimationFrame(animationFrame);

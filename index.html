@@ -6,28 +6,159 @@
     <meta name="theme-color" content="#101820" />
     <title>Starfall 复刻（学习研究）</title>
     <style>
-      html,
-      body,
-      #app {
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        overflow: hidden;
+      * { box-sizing: border-box; }
+      html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { background: #101820; color: #edf4ff; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      #app { position: relative; isolation: isolate; min-height: 420px; }
+      #app > canvas { position: absolute; inset: 0; z-index: 0; display: block; width: 100%; height: 100%; }
+      #hud-root { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+      .hud-top {
+        position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+        display: flex; align-items: center; gap: 12px; min-width: min(680px, calc(100vw - 28px));
+        padding: 10px 14px; border: 1px solid rgba(172, 201, 232, .2); border-radius: 14px;
+        background: rgba(10, 19, 29, .88); box-shadow: 0 12px 36px rgba(0, 0, 0, .28); backdrop-filter: blur(12px);
       }
-
-      body {
-        background: #101820;
+      .team-score, .clock-block, .gold-block { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 72px; }
+      .team-score strong, .clock-block strong, .gold-block strong { font-size: 21px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+      .team-score small, .clock-block small, .gold-block small { color: #9eb0c6; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+      .blue-text { color: #70baff; }
+      .red-text { color: #ff9b79; }
+      .gold-text { color: #ffd879; }
+      .score-divider { color: #64758a; font-size: 20px; }
+      .hero-roster { position: absolute; left: 18px; top: 90px; display: flex; gap: 8px; pointer-events: none; }
+      .hero-card {
+        display: flex; align-items: center; gap: 8px; min-width: 112px; padding: 7px 9px;
+        border: 1px solid rgba(143, 184, 222, .18); border-radius: 10px; background: rgba(10, 19, 29, .82);
       }
-
-      #app canvas {
-        display: block;
-        width: 100%;
-        height: 100%;
+      .hero-card canvas { width: 34px; height: 34px; border-radius: 8px; flex: 0 0 auto; }
+      .hero-card span { display: block; font-size: 11px; font-weight: 700; }
+      .hero-card small { display: block; margin-top: 2px; color: #93a6bd; font-size: 9px; }
+      .panel {
+        position: absolute; top: 142px; left: 50%; transform: translateX(-50%);
+        width: min(620px, calc(100vw - 32px)); max-height: min(470px, calc(100vh - 210px)); overflow: auto;
+        padding: 16px; border: 1px solid rgba(155, 192, 228, .28); border-radius: 14px;
+        background: rgba(9, 17, 27, .96); box-shadow: 0 20px 70px rgba(0, 0, 0, .42);
+        pointer-events: auto; backdrop-filter: blur(16px);
+      }
+      .panel[hidden], .overlay[hidden] { display: none; }
+      .panel-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+      .panel-heading h2 { margin: 0; font-size: 16px; }
+      .panel-heading small { color: #92a6bf; font-size: 11px; }
+      #shop-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+      .shop-item {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 72px; padding: 10px;
+        border: 1px solid rgba(144, 174, 206, .16); border-radius: 10px; background: rgba(255, 255, 255, .035);
+      }
+      .shop-item strong { display: block; font-size: 12px; }
+      .shop-item small { display: block; margin-top: 5px; color: #9aacc1; font-size: 10px; line-height: 1.45; }
+      .shop-item button {
+        flex: 0 0 auto; min-width: 92px; padding: 7px 9px; border: 1px solid rgba(112, 186, 255, .42);
+        border-radius: 8px; background: rgba(58, 126, 185, .24); color: #dff1ff; font-size: 10px; cursor: pointer;
+      }
+      .shop-item button:disabled { border-color: rgba(130, 145, 164, .18); background: rgba(120, 132, 148, .1); color: #718095; cursor: not-allowed; }
+      #shop-feedback { min-height: 18px; margin: 10px 0 0; color: #b9d9ff; font-size: 11px; }
+      .scoreboard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .scoreboard-team h3 { margin: 0 0 8px; font-size: 12px; }
+      .score-row {
+        display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px 58px; gap: 6px; padding: 6px 7px;
+        border-bottom: 1px solid rgba(143, 168, 195, .12); color: #d9e4f1; font-size: 10px; font-variant-numeric: tabular-nums;
+      }
+      .score-row span:not(:first-child) { text-align: right; }
+      .score-head { color: #7f93aa; font-size: 9px; }
+      .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(5, 10, 17, .72); pointer-events: none; }
+      .overlay-card {
+        padding: 24px 36px; border: 1px solid rgba(170, 203, 235, .35); border-radius: 16px;
+        background: rgba(10, 20, 31, .94); text-align: center; box-shadow: 0 20px 70px rgba(0, 0, 0, .45);
+      }
+      .overlay-card strong { display: block; font-size: 28px; letter-spacing: .08em; }
+      .overlay-card small { display: block; margin-top: 8px; color: #a9bad0; font-size: 12px; }
+      .skillbar {
+        position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); display: flex; align-items: center;
+        gap: 7px; padding: 9px 12px; border: 1px solid rgba(160, 192, 224, .2); border-radius: 12px;
+        background: rgba(8, 17, 27, .9); pointer-events: none;
+      }
+      .skill-slot {
+        display: grid; grid-template-columns: 28px auto; align-items: center; gap: 6px; min-width: 76px; padding: 5px 7px;
+        border: 1px solid rgba(130, 158, 188, .16); border-radius: 8px; background: rgba(255, 255, 255, .035);
+      }
+      .skill-slot kbd {
+        display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid rgba(190, 212, 237, .32);
+        border-radius: 6px; color: #f2f7ff; font: 700 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .skill-slot span { color: #b5c5d8; font-size: 9px; white-space: nowrap; }
+      .controls { position: absolute; right: 18px; bottom: 26px; color: rgba(198, 215, 235, .72); font-size: 10px; text-align: right; }
+      #action-hint {
+        position: absolute; left: 18px; bottom: 24px; max-width: 290px; padding: 7px 10px;
+        border: 1px solid rgba(145, 178, 211, .15); border-radius: 8px; background: rgba(8, 17, 27, .78);
+        color: #b7c8dc; font-size: 10px;
+      }
+      #audio-state { color: #ffd879; }
+      @media (max-width: 900px) {
+        .hero-roster { left: 10px; top: 84px; flex-wrap: wrap; max-width: 280px; }
+        .hero-card { min-width: 104px; }
+        .controls { right: 10px; bottom: 12px; max-width: 125px; line-height: 1.6; }
+        #action-hint { left: 10px; bottom: 12px; max-width: 180px; }
+        .skillbar { bottom: 62px; }
+      }
+      @media (max-width: 600px) {
+        .hud-top { top: 8px; gap: 6px; padding: 8px; }
+        .team-score, .clock-block, .gold-block { min-width: 56px; }
+        .team-score strong, .clock-block strong, .gold-block strong { font-size: 17px; }
+        .hero-roster { display: none; }
+        .skillbar { left: 8px; right: 8px; bottom: 10px; transform: none; justify-content: center; gap: 3px; padding: 6px; }
+        .skill-slot { min-width: 0; grid-template-columns: 25px; justify-items: center; gap: 2px; padding: 4px; }
+        .skill-slot span { display: none; }
+        .controls { display: none; }
+        #action-hint { bottom: 68px; }
+        #shop-items { grid-template-columns: 1fr; }
+        .scoreboard-grid { grid-template-columns: 1fr; }
       }
     </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div id="hud-root">
+        <header class="hud-top" aria-label="对局状态">
+          <div class="team-score"><small>BLUE KILLS</small><strong id="blue-score" class="blue-text">0</strong></div>
+          <span class="score-divider">:</span>
+          <div class="team-score"><small>RED KILLS</small><strong id="red-score" class="red-text">0</strong></div>
+          <div class="clock-block"><small>TIME</small><strong id="game-time">00:00</strong></div>
+          <div class="gold-block"><small>BLUE GOLD</small><strong id="team-gold" class="gold-text">1,600</strong></div>
+        </header>
+        <section class="hero-roster" aria-label="己方英雄头像">
+          <div class="hero-card"><canvas width="64" height="64" data-avatar="vanguard" aria-label="Vanguard 原创头像"></canvas><div><span>Vanguard</span><small>前卫</small></div></div>
+          <div class="hero-card"><canvas width="64" height="64" data-avatar="ranger" aria-label="Ranger 原创头像"></canvas><div><span>Ranger</span><small>游侠</small></div></div>
+          <div class="hero-card"><canvas width="64" height="64" data-avatar="arcanist" aria-label="Arcanist 原创头像"></canvas><div><span>Arcanist</span><small>术士</small></div></div>
+          <div class="hero-card"><canvas width="64" height="64" data-avatar="duelist" aria-label="Duelist 原创头像"></canvas><div><span>Duelist</span><small>决斗者</small></div></div>
+          <div class="hero-card"><canvas width="64" height="64" data-avatar="guardian" aria-label="Guardian 原创头像"></canvas><div><span>Guardian</span><small>守护者</small></div></div>
+        </section>
+        <section id="shop-panel" class="panel" hidden aria-label="装备商店">
+          <div class="panel-heading"><h2>装备商店</h2><small>按 P 关闭 · 购买给蓝方 1 号英雄</small></div>
+          <div id="shop-items"></div>
+          <p id="shop-feedback" aria-live="polite">选择装备查看购买结果。</p>
+        </section>
+        <section id="scoreboard-panel" class="panel" hidden aria-label="战况">
+          <div class="panel-heading"><h2>战况</h2><small>按 Tab 关闭 · K 击杀 / D 死亡 / 金币</small></div>
+          <div class="scoreboard-grid">
+            <div class="scoreboard-team"><h3 class="blue-text">蓝方</h3><div id="scoreboard-blue"></div></div>
+            <div class="scoreboard-team"><h3 class="red-text">红方</h3><div id="scoreboard-red"></div></div>
+          </div>
+        </section>
+        <div id="pause-overlay" class="overlay" hidden><div class="overlay-card"><strong>模拟已暂停</strong><small>按 Esc 恢复模拟</small></div></div>
+        <div id="winner-overlay" class="overlay" hidden><div class="overlay-card"><strong id="winner-title">VICTORY</strong><small id="winner-subtitle">水晶已摧毁</small></div></div>
+        <footer class="skillbar" aria-label="技能与操作提示">
+          <div class="skill-slot"><kbd>Q</kbd><span>技能 Q</span></div>
+          <div class="skill-slot"><kbd>E</kbd><span>技能 E</span></div>
+          <div class="skill-slot"><kbd>R</kbd><span>技能 R</span></div>
+          <div class="skill-slot"><kbd>F</kbd><span>闪现</span></div>
+          <div class="skill-slot"><kbd>G</kbd><span>疗伤</span></div>
+          <div class="skill-slot"><kbd>B</kbd><span>回城</span></div>
+          <div class="skill-slot"><kbd>Space</kbd><span>普攻</span></div>
+        </footer>
+        <div id="action-hint" aria-live="polite">技能与操作键目前仅作界面占位，不触发实际效果。</div>
+        <div class="controls">P 商店 · Tab 战况 · Esc 暂停 · M 音效<br /><span id="audio-state">音效：开启</span></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
