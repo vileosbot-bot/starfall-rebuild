@@ -1,7 +1,7 @@
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
-import { EQUIPMENT, FIRST_WAVE_TICK, createSimulation, getLoggedGoldBalance, purchaseEquipment, stepSimulation } from '../src/sim.ts';
+import { EQUIPMENT, FIRST_WAVE_TICK, createSimulation, getLoggedGoldBalance, isStructureTargetEligible, purchaseEquipment, stepSimulation } from '../src/sim.ts';
 import {
   formatGameTime,
   formatGold,
