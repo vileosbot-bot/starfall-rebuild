@@ -126,6 +126,7 @@ test('player target prompts distinguish right-click pathing from a specified att
 
 test('main mouse input is canvas-only and respects overlay, pause, death, winner, and aiming guards', async () => {
   const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const simSource = await readFile(new URL('../src/sim.ts', import.meta.url), 'utf8');
   assert.match(source, /renderScene\.canvas\.addEventListener\('mousedown', onCanvasMouseDown\)/);
   assert.match(source, /renderScene\.canvas\.addEventListener\('contextmenu', onCanvasContextMenu\)/);
   assert.doesNotMatch(source, /window\.addEventListener\('mousedown'/);
@@ -137,9 +138,9 @@ test('main mouse input is canvas-only and respects overlay, pause, death, winner
   assert.match(source, /const groundPoint = screenToGroundPoint\(screenX, screenY, rect\.width, rect\.height\);[\s\S]*?playerMoveTarget = groundPoint;[\s\S]*?playerAttackTargetId = null;/);
   assert.match(source, /Math\.hypot\(playerHero\.position\.x - playerMoveTarget\.x, playerHero\.position\.y - playerMoveTarget\.y\) <= 0\.3 \+ 1e-9/);
   assert.match(source, /if \(playerAttackTargetId && !isPlayerSelectableEnemyTarget\(world, playerAttackTargetId\)\)/);
-  assert.match(source, /function laneFromY\(y: number\)/);
-  assert.match(source, /const laneTowers = world\.entities[\s\S]*?laneFromY\(entity\.position\.y\) === targetLane/);
-  assert.match(source, /anyEnemyInnerTowerDestroyed/);
+  assert.match(source, /isStructureTargetEligible\(world, player\.team, target\.id\)/);
+  assert.match(simSource, /export function isStructureTargetEligible/);
+  assert.match(simSource, /entity\.towerIndex === 2 && !entity\.alive/);
 });
 
 test('main input wiring starts Q/E/R aim on keydown, dispatches on keyup, and clears aim on cancel/death', async () => {
@@ -263,14 +264,12 @@ test('scoreboard shows assists and minion last-hits in the existing K/D columns'
 });
 
 
-test('main mouse target selection is lane-local and unlocks the crystal after any inner tower falls', async () => {
+test('main mouse target selection delegates cross-lane structure eligibility to the shared simulation predicate', async () => {
   const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
-  const laneMatch = source.match(/function laneFromY\(y: number\): 'top' \| 'mid' \| 'bottom' \{([\s\S]*?)\n\}/);
-  assert.ok(laneMatch, 'main contains the current-position lane helper');
-  const laneFromY = new Function('y', laneMatch[1]);
+  assert.match(source, /isStructureTargetEligible/);
   const match = source.match(/function isPlayerSelectableEnemyTarget\(world: Simulation, targetId: string\): boolean \{([\s\S]*?)\n\}/);
   assert.ok(match, 'main contains the player target selection function');
-  const isSelectable = new Function('world', 'targetId', 'laneFromY', match[1]);
+  const isSelectable = new Function('world', 'targetId', 'isStructureTargetEligible', match[1]);
   const player = { id: 'blue-hero-vanguard', kind: 'hero', team: 'blue', alive: true };
   const towers = [];
   for (const lane of ['top', 'mid', 'bottom']) {
@@ -284,22 +283,21 @@ test('main mouse target selection is lane-local and unlocks the crystal after an
   const enemyHero = { id: 'red-hero-vanguard', kind: 'hero', team: 'red', alive: true };
   const enemyMinion = { id: 'red-minion-test', kind: 'minion', team: 'red', alive: true };
   const world = { playerHeroId: player.id, entities: [player, ...towers, crystal, enemyHero, enemyMinion] };
+
   for (const lane of ['top', 'mid', 'bottom']) {
-    assert.equal(isSelectable(world, 'red-tower-' + lane + '-1', laneFromY), true, lane + ' outer tower is selectable while other lanes remain defended');
+    assert.equal(isSelectable(world, 'red-tower-' + lane + '-1', isStructureTargetEligible), true);
   }
-  assert.equal(isSelectable(world, 'red-tower-top-2', laneFromY), false, 'top inner tower is locked behind its own outer tower');
+  assert.equal(isSelectable(world, 'red-tower-top-2', isStructureTargetEligible), false);
   const topOuter = towers.find((tower) => tower.id === 'red-tower-top-1');
   topOuter.alive = false;
-  assert.equal(isSelectable(world, 'red-tower-top-2', laneFromY), true, 'top inner tower unlocks after its own outer tower falls');
-  assert.equal(isSelectable(world, crystal.id, laneFromY), false, 'crystal remains locked before an inner tower falls');
+  assert.equal(isSelectable(world, 'red-tower-top-2', isStructureTargetEligible), true);
+  assert.equal(isSelectable(world, crystal.id, isStructureTargetEligible), false);
   const bottomInner = towers.find((tower) => tower.id === 'red-tower-bottom-2');
   bottomInner.alive = false;
-  assert.equal(isSelectable(world, crystal.id, laneFromY), true, 'one inner tower falling in any lane unlocks crystal selection');
-  assert.equal(isSelectable(world, enemyHero.id, laneFromY), true, 'enemy hero selection remains unchanged');
-  assert.equal(isSelectable(world, enemyMinion.id, laneFromY), true, 'enemy minion selection remains unchanged');
+  assert.equal(isSelectable(world, crystal.id, isStructureTargetEligible), true);
+  assert.equal(isSelectable(world, enemyHero.id, isStructureTargetEligible), true);
+  assert.equal(isSelectable(world, enemyMinion.id, isStructureTargetEligible), true);
 });
-
-
 test('audio settings use the original storage key, default to 80/90, and persist only supported values', () => {
   assert.equal(SETTINGS_STORAGE_KEY, 'starfall.settings.v1');
   assert.deepEqual(DEFAULT_AUDIO_SETTINGS, { masterVolume: 80, sfxVolume: 90 });

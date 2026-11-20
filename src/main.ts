@@ -2,7 +2,7 @@ import { createAudioController } from './audio.ts';
 import { createHud, createMatchSession, getPlayerHeroId, HERO_LABELS, HERO_ROLES, parseAudioSettings, serializeAudioSettings, SETTINGS_STORAGE_KEY, handleScoreboardTabDown, handleScoreboardTabUp, toggleScoreboardPin, cancelScoreboardPin } from './hud.ts';
 import type { AudioSettings, SettingsMode } from './hud.ts';
 import { createRenderScene, projectSimPointToScreen, screenToGroundPoint } from './render.ts';
-import { createSimulation, FIXED_STEP_SECONDS, getEventsAfterSequence, stepSimulation } from './sim.ts';
+import { createSimulation, FIXED_STEP_SECONDS, getEventsAfterSequence, isStructureTargetEligible, stepSimulation } from './sim.ts';
 import type { HeroRole, PlayerCommand, PlayerSkillKey, Simulation } from './sim.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -96,12 +96,6 @@ function isPlayerHeroAlive(world: Simulation | null = session.world): boolean {
   return world.entities.some((entity) => entity.id === playerHeroId && entity.kind === 'hero' && entity.alive);
 }
 
-function laneFromY(y: number): 'top' | 'mid' | 'bottom' {
-  if (y < -4) return 'top';
-  if (y > 4) return 'bottom';
-  return 'mid';
-}
-
 function isPlayerSelectableEnemyTarget(world: Simulation, targetId: string): boolean {
   const player = world.playerHeroId
     ? world.entities.find((entity) => entity.id === world.playerHeroId && entity.kind === 'hero' && entity.alive)
@@ -109,20 +103,10 @@ function isPlayerSelectableEnemyTarget(world: Simulation, targetId: string): boo
   const target = world.entities.find((entity) => entity.id === targetId && entity.alive);
   if (!player || !target || target.team === player.team || target.team === 'neutral') return false;
   if (target.kind === 'hero' || target.kind === 'minion') return true;
-  if (target.kind !== 'tower' && target.kind !== 'crystal') return false;
-
-  if (target.kind === 'tower') {
-    const targetLane = laneFromY(target.position.y);
-    const laneTowers = world.entities
-      .filter((entity) => entity.kind === 'tower' && entity.team === target.team && entity.alive && laneFromY(entity.position.y) === targetLane)
-      .sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
-    return laneTowers.length > 0 && target.id === laneTowers[0].id;
+  if (target.kind === 'tower' || target.kind === 'crystal') {
+    return isStructureTargetEligible(world, player.team, target.id);
   }
-  const enemyCrystal = world.entities.find((entity) => entity.kind === 'crystal' && entity.team === target.team && entity.alive);
-  const anyEnemyInnerTowerDestroyed = world.entities.some((entity) =>
-    entity.kind === 'tower' && entity.team === target.team && entity.towerIndex === 2 && !entity.alive
-  );
-  return anyEnemyInnerTowerDestroyed && target.id === enemyCrystal?.id;
+  return false;
 }
 
 function findProjectedEnemyAtPoint(

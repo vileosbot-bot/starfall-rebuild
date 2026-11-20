@@ -23,6 +23,7 @@ import {
   getLoggedGoldBalance,
   getPassiveGoldTotalAtTick,
   getTowerTeamGoldReward,
+  isStructureTargetEligible,
   calculateDamage,
   createSimulation,
   purchaseEquipment,
@@ -1075,6 +1076,136 @@ test('tower destruction pays every teammate by layer, a 40 gold hero last-hit bo
 });
 
 
+
+test('shared structure eligibility is lane-local for towers and unlocks the crystal after any enemy inner tower falls', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const topOuter = entity(world, 'red-tower-top-1');
+  const topInner = entity(world, 'red-tower-top-2');
+  const midOuter = entity(world, 'red-tower-mid-1');
+  const bottomInner = entity(world, 'red-tower-bottom-2');
+  const crystal = entity(world, 'red-crystal');
+
+  assert.equal(isStructureTargetEligible(world, 'blue', topOuter.id), true);
+  assert.equal(isStructureTargetEligible(world, 'blue', topInner.id), false);
+  assert.equal(isStructureTargetEligible(world, 'blue', midOuter.id), true);
+  assert.equal(isStructureTargetEligible(world, 'blue', crystal.id), false);
+
+  topOuter.alive = false;
+  topOuter.hp = 0;
+  assert.equal(isStructureTargetEligible(world, 'blue', topOuter.id), false);
+  assert.equal(isStructureTargetEligible(world, 'blue', topInner.id), true);
+  assert.equal(isStructureTargetEligible(world, 'blue', midOuter.id), true);
+
+  bottomInner.alive = false;
+  bottomInner.hp = 0;
+  assert.equal(isStructureTargetEligible(world, 'blue', crystal.id), true);
+});
+
+function prepareCrossLaneStructureWorld(role = 'vanguard') {
+  const world = createSimulation(20261120, role);
+  const player = entity(world, 'blue-hero-' + role);
+  for (const unit of world.entities) {
+    if (unit.id === player.id) continue;
+    if (unit.kind === 'tower' || unit.kind === 'crystal') {
+      unit.attackDamage = 0;
+      unit.attackRange = 0;
+      unit.attackCooldownTicks = 9999;
+      unit.cooldownRemaining = 9999;
+      continue;
+    }
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
+  }
+  return { world, player };
+}
+
+test('player can approach and basic-attack an unlocked tower in another lane without changing its assigned lane', () => {
+  const { world, player } = prepareCrossLaneStructureWorld('vanguard');
+  const topOuter = entity(world, 'red-tower-top-1');
+  const midOuter = entity(world, 'red-tower-mid-1');
+  player.position = { x: -4, y: -8 };
+  player.lane = 'mid';
+  player.moveSpeed = 4;
+  player.attackRange = 1.5;
+  player.attackDamage = 60;
+  player.attackCooldownTicks = 1;
+  player.cooldownRemaining = 0;
+  player.critChance = 0;
+
+  stepSimulation(world, 45, { attackTargetId: topOuter.id });
+
+  assert.ok(player.position.x > -2, 'player should approach the cross-lane tower');
+  assert.equal(player.lane, 'mid', 'cross-lane movement must not overwrite the assigned lane');
+  assert.ok(topOuter.hp < topOuter.maxHp, 'the specified cross-lane tower should take basic-attack damage');
+  assert.equal(midOuter.hp, midOuter.maxHp, 'the assigned-lane tower must not replace the specified target');
+  assert.ok(world.events.some((event) =>
+    event.type === 'attack' && event.sourceId === player.id && event.targetId === topOuter.id
+  ));
+});
+
+for (const key of ['Q', 'E', 'R']) {
+  test('player ' + key + ' skill can damage a specified unlocked tower in another lane', () => {
+    const { world, player } = prepareCrossLaneStructureWorld('ranger');
+    const topOuter = entity(world, 'red-tower-top-1');
+    const midOuter = entity(world, 'red-tower-mid-1');
+    player.position = { x: 0, y: -8 };
+    player.lane = 'mid';
+    player.moveSpeed = 0;
+    player.attackRange = 0.5;
+    player.attackCooldownTicks = 9999;
+    player.cooldownRemaining = 9999;
+    player.attackDamage = 100;
+    player.critChance = 0;
+    player.mana = 300;
+    player.manaRegenPerSecond = 0;
+    topOuter.hp = 10000;
+    topOuter.maxHp = 10000;
+    topOuter.armor = 0;
+    topOuter.resistance = 0;
+    midOuter.hp = 10000;
+    midOuter.maxHp = 10000;
+
+    stepSimulation(world, 1, { attackTargetId: topOuter.id, skill: key });
+
+    assert.ok(topOuter.hp < topOuter.maxHp, key + ' should damage the specified cross-lane tower');
+    assert.equal(midOuter.hp, midOuter.maxHp, key + ' should not retarget the assigned-lane tower');
+    assert.ok(world.events.some((event) =>
+      event.type === 'player-skill' && event.sourceId === player.id &&
+      event.targetId === topOuter.id && event.detail?.startsWith(key + ':')
+    ));
+  });
+}
+
+test('player can attack a crystal unlocked by an inner tower falling in another lane, win, and freeze the simulation', () => {
+  const { world, player } = prepareCrossLaneStructureWorld('vanguard');
+  const crystal = entity(world, 'red-crystal');
+  const bottomInner = entity(world, 'red-tower-bottom-2');
+  bottomInner.alive = false;
+  bottomInner.hp = 0;
+  assert.equal(isStructureTargetEligible(world, 'blue', crystal.id), true);
+
+  player.position = { x: 13, y: -8 };
+  player.lane = 'mid';
+  player.attackRange = 10;
+  player.attackDamage = 2000;
+  player.attackCooldownTicks = 1;
+  player.cooldownRemaining = 0;
+  player.critChance = 0;
+  crystal.hp = 1;
+
+  stepSimulation(world, 1, { attackTargetId: crystal.id });
+
+  assert.equal(crystal.alive, false);
+  assert.equal(world.winner, 'blue');
+  assert.equal(world.endReason, 'crystal-destroyed');
+  assert.ok(world.events.some((event) =>
+    event.type === 'crystal-destroyed' && event.sourceId === player.id && event.targetId === crystal.id
+  ));
+  const terminalTick = world.tick;
+  stepSimulation(world, 100);
+  assert.equal(world.tick, terminalTick);
+});
 
 test('cross-lane AI kills a minion and its corpse is reclaimed after the grace period', () => {
   const world = createSimulation(20261119);

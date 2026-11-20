@@ -331,6 +331,39 @@ function getEntityLane(entity: SimEntity): Lane {
   return laneFromY(entity.position.y);
 }
 
+export function isStructureTargetEligible(
+  world: Simulation,
+  attackingTeam: Faction,
+  targetId: string,
+): boolean {
+  if (attackingTeam === 'neutral') return false;
+  const target = world.entities.find((entity) => entity.id === targetId);
+  if (!target || !target.alive || target.team !== oppositeTeam(attackingTeam)) return false;
+
+  if (target.kind === 'tower') {
+    const lane = getEntityLane(target);
+    const firstSurvivingTower = world.entities
+      .filter((entity) =>
+        entity.kind === 'tower' && entity.team === target.team &&
+        entity.alive && getEntityLane(entity) === lane
+      )
+      .sort((a, b) =>
+        (a.towerIndex ?? 0) - (b.towerIndex ?? 0) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      )[0];
+    return firstSurvivingTower?.id === target.id;
+  }
+
+  if (target.kind === 'crystal') {
+    return world.entities.some((entity) =>
+      entity.kind === 'tower' && entity.team === target.team &&
+      entity.towerIndex === 2 && !entity.alive
+    );
+  }
+
+  return false;
+}
+
 function addEvent(world: Simulation, event: Omit<SimEvent, 'tick' | 'sequence'>): void {
   world.eventSequence += 1;
   world.events.push({ sequence: world.eventSequence, tick: world.tick, simSeconds: world.tick * FIXED_STEP_SECONDS, ...event });
@@ -627,12 +660,12 @@ function findStructureTarget(world: Simulation, origin: SimEntity): SimEntity | 
   const towers = world.entities.filter((entity) =>
     entity.kind === 'tower' && entity.team === enemy && entity.alive && getEntityLane(entity) === lane
   ).sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
-  if (towers.length > 0) return towers[0];
-  const anyEnemyInnerTowerDestroyed = world.entities.some((entity) =>
-    entity.kind === 'tower' && entity.team === enemy && entity.towerIndex === 2 && !entity.alive
+  const nextTower = towers.find((tower) => isStructureTargetEligible(world, origin.team, tower.id));
+  if (nextTower) return nextTower;
+  const crystal = world.entities.find((entity) =>
+    entity.kind === 'crystal' && entity.team === enemy && entity.alive
   );
-  if (!anyEnemyInnerTowerDestroyed) return null;
-  return world.entities.find((entity) => entity.kind === 'crystal' && entity.team === enemy && entity.alive) ?? null;
+  return crystal && isStructureTargetEligible(world, origin.team, crystal.id) ? crystal : null;
 }
 
 function selectTarget(world: Simulation, actor: SimEntity): SimEntity | null {
@@ -1219,6 +1252,20 @@ function playerEnemyTargets(world: Simulation, hero: SimEntity): SimEntity[] {
   });
 }
 
+function findPlayerSpecifiedTarget(world: Simulation, hero: SimEntity, targetId: string): SimEntity | null {
+  if (hero.team === 'neutral') return null;
+  const enemy = oppositeTeam(hero.team);
+  const target = world.entities.find((entity) =>
+    entity.id === targetId && entity.alive && entity.team === enemy
+  );
+  if (!target) return null;
+  if (target.kind === 'hero' || target.kind === 'minion') return target;
+  if (target.kind === 'tower' || target.kind === 'crystal') {
+    return isStructureTargetEligible(world, hero.team, target.id) ? target : null;
+  }
+  return null;
+}
+
 function applyPlayerSkillDamage(world: Simulation, hero: SimEntity, target: SimEntity, multiplier: number): number {
   const amount = calculateDamage({
     damageType: hero.damageType,
@@ -1232,7 +1279,12 @@ function applyPlayerSkillDamage(world: Simulation, hero: SimEntity, target: SimE
   return amount;
 }
 
-function castRoleSkill(world: Simulation, hero: SimEntity, key: 'Q' | 'E' | 'R'): boolean {
+function castRoleSkill(
+  world: Simulation,
+  hero: SimEntity,
+  key: 'Q' | 'E' | 'R',
+  specifiedTarget: SimEntity | null = null,
+): boolean {
   if (!hero.role || !hero.skillCooldowns) return false;
   const definition = HERO_SKILLS[hero.role][key];
   const mana = hero.mana ?? 0;
@@ -1245,7 +1297,9 @@ function castRoleSkill(world: Simulation, hero: SimEntity, key: 'Q' | 'E' | 'R')
     if (totalAmount <= 0) return false;
     hero.hp += totalAmount;
   } else {
-    primaryTarget = nearestEntity(hero, playerEnemyTargets(world, hero), definition.range);
+    primaryTarget = specifiedTarget
+      ? (distance(hero.position, specifiedTarget.position) <= definition.range ? specifiedTarget : null)
+      : nearestEntity(hero, playerEnemyTargets(world, hero), definition.range);
     if (!primaryTarget) return false;
     if (definition.effect === 'dash-strike') {
       const dx = primaryTarget.position.x - hero.position.x;
@@ -1256,8 +1310,15 @@ function castRoleSkill(world: Simulation, hero: SimEntity, key: 'Q' | 'E' | 'R')
         hero.position.y = primaryTarget.position.y - (dy / targetDistance) * 0.85;
       }
     }
+    const areaCenter = primaryTarget;
+    const candidates = playerEnemyTargets(world, hero);
+    if (specifiedTarget && !candidates.some((entity) => entity.id === specifiedTarget.id)) {
+      candidates.push(specifiedTarget);
+    }
     const targets = definition.effect === 'area-damage'
-      ? playerEnemyTargets(world, hero).filter((entity) => distance(entity.position, primaryTarget!.position) <= (definition.radius ?? 0))
+      ? candidates.filter((entity) =>
+        entity.alive && distance(entity.position, areaCenter.position) <= (definition.radius ?? 0)
+      )
       : [primaryTarget];
     for (const target of targets) {
       if (target.alive) totalAmount += applyPlayerSkillDamage(world, hero, target, definition.multiplier ?? 1);
@@ -1332,10 +1393,7 @@ function applyPlayerCommand(world: Simulation, command?: PlayerCommand): void {
   }
 
   const specifiedTarget = command.attackTargetId
-    ? playerEnemyTargets(world, hero).find((entity) =>
-      entity.id === command.attackTargetId && entity.team !== 'neutral' &&
-      (entity.kind === 'hero' || entity.kind === 'minion' || entity.kind === 'tower' || entity.kind === 'crystal')
-    ) ?? null
+    ? findPlayerSpecifiedTarget(world, hero, command.attackTargetId)
     : null;
 
   if (specifiedTarget) {
@@ -1367,7 +1425,7 @@ function applyPlayerCommand(world: Simulation, command?: PlayerCommand): void {
     startPlayerChannel(world, hero, command.skill === 'G' ? 'heal' : 'recall');
     return;
   }
-  castRoleSkill(world, hero, command.skill);
+  castRoleSkill(world, hero, command.skill, specifiedTarget);
 }
 
 function advancePlayerChannel(world: Simulation): void {
