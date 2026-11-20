@@ -328,8 +328,7 @@ function laneFromY(y: number): Lane {
 }
 
 function getEntityLane(entity: SimEntity): Lane {
-  if (entity.kind === 'minion') return laneFromY(entity.position.y);
-  return entity.lane ?? laneFromY(entity.position.y);
+  return laneFromY(entity.position.y);
 }
 
 function addEvent(world: Simulation, event: Omit<SimEvent, 'tick' | 'sequence'>): void {
@@ -621,7 +620,10 @@ function nearestEntity(
 
 function findStructureTarget(world: Simulation, origin: SimEntity): SimEntity | null {
   if (origin.team === 'neutral') return null;
-  const enemy = oppositeTeam(origin.team), lane = getEntityLane(origin);
+  const enemy = oppositeTeam(origin.team);
+  const lane = origin.kind === 'hero'
+    ? origin.lane ?? laneFromY(origin.position.y)
+    : getEntityLane(origin);
   const towers = world.entities.filter((entity) =>
     entity.kind === 'tower' && entity.team === enemy && entity.alive && getEntityLane(entity) === lane
   ).sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
@@ -1253,7 +1255,6 @@ function castRoleSkill(world: Simulation, hero: SimEntity, key: 'Q' | 'E' | 'R')
         hero.position.x = primaryTarget.position.x - (dx / targetDistance) * 0.85;
         hero.position.y = primaryTarget.position.y - (dy / targetDistance) * 0.85;
       }
-      hero.lane = laneFromY(hero.position.y);
     }
     const targets = definition.effect === 'area-damage'
       ? playerEnemyTargets(world, hero).filter((entity) => distance(entity.position, primaryTarget!.position) <= (definition.radius ?? 0))
@@ -1294,7 +1295,6 @@ function castFlash(world: Simulation, hero: SimEntity, moveX: number, moveY: num
   }
   hero.position.x += (dx / directionLength) * FLASH_DISTANCE;
   hero.position.y += (dy / directionLength) * FLASH_DISTANCE;
-  hero.lane = laneFromY(hero.position.y);
   hero.skillCooldowns.F = FLASH_COOLDOWN_TICKS;
   addEvent(world, { type: 'player-skill', sourceId: hero.id, amount: FLASH_DISTANCE, detail: 'F:flash' });
   return true;
@@ -1353,7 +1353,6 @@ function applyPlayerCommand(world: Simulation, command?: PlayerCommand): void {
     if (hero.channel) cancelPlayerChannel(world, hero, 'move');
     moveTowardsPoint(hero, command.moveTarget, 0.3);
   }
-  hero.lane = laneFromY(hero.position.y);
 
   if (command.attack && !specifiedTarget) {
     if (hero.channel) cancelPlayerChannel(world, hero, 'attack');

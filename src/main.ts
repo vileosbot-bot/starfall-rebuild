@@ -69,6 +69,12 @@ function isPlayerHeroAlive(world: Simulation | null = session.world): boolean {
   return world.entities.some((entity) => entity.id === playerHeroId && entity.kind === 'hero' && entity.alive);
 }
 
+function laneFromY(y: number): 'top' | 'mid' | 'bottom' {
+  if (y < -4) return 'top';
+  if (y > 4) return 'bottom';
+  return 'mid';
+}
+
 function isPlayerSelectableEnemyTarget(world: Simulation, targetId: string): boolean {
   const player = world.playerHeroId
     ? world.entities.find((entity) => entity.id === world.playerHeroId && entity.kind === 'hero' && entity.alive)
@@ -78,12 +84,18 @@ function isPlayerSelectableEnemyTarget(world: Simulation, targetId: string): boo
   if (target.kind === 'hero' || target.kind === 'minion') return true;
   if (target.kind !== 'tower' && target.kind !== 'crystal') return false;
 
-  const enemyTowers = world.entities
-    .filter((entity) => entity.kind === 'tower' && entity.team === target.team && entity.alive)
-    .sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
-  if (enemyTowers.length > 0) return target.id === enemyTowers[0].id;
+  if (target.kind === 'tower') {
+    const targetLane = laneFromY(target.position.y);
+    const laneTowers = world.entities
+      .filter((entity) => entity.kind === 'tower' && entity.team === target.team && entity.alive && laneFromY(entity.position.y) === targetLane)
+      .sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
+    return laneTowers.length > 0 && target.id === laneTowers[0].id;
+  }
   const enemyCrystal = world.entities.find((entity) => entity.kind === 'crystal' && entity.team === target.team && entity.alive);
-  return target.id === enemyCrystal?.id;
+  const anyEnemyInnerTowerDestroyed = world.entities.some((entity) =>
+    entity.kind === 'tower' && entity.team === target.team && entity.towerIndex === 2 && !entity.alive
+  );
+  return anyEnemyInnerTowerDestroyed && target.id === enemyCrystal?.id;
 }
 
 function findProjectedEnemyAtPoint(

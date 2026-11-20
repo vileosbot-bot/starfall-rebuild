@@ -876,7 +876,7 @@ test('every third wave adds siege minions per lane and an inner-tower break adds
   for (let tick = 0; tick < 50; tick += 1) {
     stepSimulation(siegeWorld, 1);
     for (const minion of siegeWorld.entities.filter((unit) => unit.kind === 'minion')) {
-      minion.attackRange = 0; minion.attackDamage = 0; minion.moveSpeed = 0;
+      minion.attackRange = 0; minion.moveSpeed = 0;
     }
   }
   const siegeMinions = siegeWorld.entities.filter((unit) => unit.kind === 'minion' && unit.minionType === 'siege');
@@ -895,7 +895,7 @@ test('every third wave adds siege minions per lane and an inner-tower break adds
   for (let tick = 0; tick < 50; tick += 1) {
     stepSimulation(superWorld, 1);
     for (const minion of superWorld.entities.filter((unit) => unit.kind === 'minion')) {
-      minion.attackRange = 0; minion.attackDamage = 0; minion.moveSpeed = 0;
+      minion.attackRange = 0; minion.moveSpeed = 0;
     }
   }
   const superMinions = superWorld.entities.filter((unit) => unit.kind === 'minion' && unit.minionType === 'super');
@@ -1069,12 +1069,14 @@ test('tower destruction pays every teammate by layer, a 40 gold hero last-hit bo
 
 
 
-test('dead minions are reclaimed after the grace period while permanent units remain', () => {
+test('cross-lane AI kills a minion and its corpse is reclaimed after the grace period', () => {
   const world = createSimulation(20261119);
   stepSimulation(world, FIRST_WAVE_TICK + 1);
   const attacker = entity(world, 'blue-hero-vanguard');
   const target = world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
   assert.ok(target);
+  assert.equal(attacker.lane, 'mid', 'Vanguard keeps its assigned lane');
+  assert.equal(target.lane, 'top', 'the target minion is in another lane');
   for (const unit of world.entities) {
     if (unit.id === attacker.id || unit.id === target.id) continue;
     unit.alive = false;
@@ -1089,6 +1091,7 @@ test('dead minions are reclaimed after the grace period while permanent units re
   stepSimulation(world, 1);
   assert.equal(target.alive, false);
   assert.equal(target.deathTick, world.tick - 1);
+  assert.equal(attacker.lane, 'mid', 'AI movement does not overwrite its assigned lane');
   const permanentIds = [attacker.id, 'blue-tower-mid-1', 'blue-crystal', 'neutral-sentinel'];
   stepSimulation(world, MINION_CORPSE_GRACE_TICKS - 2);
   assert.ok(world.entities.some((unit) => unit.id === target.id), 'corpse remains during the grace period');
@@ -1174,18 +1177,17 @@ function prepareStructureTargetWorld(stage) {
     unit.hp = 0;
     unit.respawnTicks = 0;
   }
-  player.position = { x: 0, y: 0 };
-  player.attackRange = 2;
+  player.position = stage === 'crystal' ? { x: 11, y: 0 } : { x: 0, y: 0 };
+  player.attackRange = stage === 'crystal' ? 3 : 2;
   player.attackCooldownTicks = 1;
   player.cooldownRemaining = 0;
-  player.attackDamage = 1000;
+  player.attackDamage = stage === 'crystal' ? 2000 : 1000;
   player.magicPower = 1000;
   player.critChance = 0;
   player.mana = 300;
   player.skillCooldowns.Q = 0;
   outer.position = { x: 1.8, y: 0 };
   inner.position = { x: 0.5, y: 0 };
-  crystal.position = { x: 0.5, y: 0 };
   for (const tower of [outer, inner]) {
     tower.attackRange = 0;
     tower.attackDamage = 0;
@@ -1197,7 +1199,7 @@ function prepareStructureTargetWorld(stage) {
   inner.alive = stage !== 'crystal';
   inner.hp = inner.alive ? inner.maxHp : 0;
   crystal.alive = true;
-  crystal.hp = stage === 'crystal' ? 1 : crystal.maxHp;
+  crystal.hp = crystal.maxHp;
   return { world, outer, inner, crystal };
 }
 
@@ -1608,12 +1610,14 @@ function prepareTopLaneStructureWorld(stage) {
   const crystal = entity(world, 'red-crystal');
   player.position = { x: 0, y: -8 };
   player.lane = 'top';
-  player.attackRange = 2;
-  player.attackDamage = 2000;
+  player.attackRange = stage === 'crystal' ? 3.2 : 2;
+  player.attackCooldownTicks = 1;
+  player.attackDamage = stage === 'crystal' ? 500 : 2000;
   player.critChance = 0;
   player.cooldownRemaining = 0;
-  crystal.position = { x: 0.5, y: -8 };
-  crystal.hp = stage === 'crystal' ? 1 : crystal.maxHp;
+  player.mana = 300;
+  player.skillCooldowns.Q = 0;
+  crystal.hp = crystal.maxHp;
   for (const unit of world.entities) {
     if (unit.id === player.id || unit.id === crystal.id || (unit.kind === 'tower' && unit.team === 'red')) continue;
     unit.alive = false; unit.hp = 0; unit.respawnTicks = 0;
@@ -1642,11 +1646,27 @@ test('player space and Q obey lane-local tower priority and any destroyed inner 
     assert.ok(innerStage.inner.hp < innerStage.inner.maxHp);
     assert.equal(innerStage.crystal.hp, innerStage.crystal.maxHp);
     const crystalStage = prepareTopLaneStructureWorld('crystal');
-    stepSimulation(crystalStage.world, 1, command);
-    assert.equal(crystalStage.outer.hp, 0);
-    assert.equal(crystalStage.inner.hp, 0);
+    stepSimulation(crystalStage.world, 160, { moveTarget: { x: 11, y: -1 } });
+    const crystalPlayer = entity(crystalStage.world, 'blue-hero-vanguard');
+    const midTower = entity(crystalStage.world, 'red-tower-mid-1');
+    const initialCrystalHp = crystalStage.crystal.hp;
+    assert.equal(crystalStage.outer.alive, false);
+    assert.equal(crystalStage.inner.alive, false);
+    assert.equal(midTower.alive, true, 'the mid lane remains defended');
+    assert.deepEqual(crystalStage.crystal.position, { x: 13.5, y: 0 }, 'crystal remains at its real map coordinate');
+    assert.equal(crystalPlayer.lane, 'top', 'player keeps assigned top lane while standing in the mid band');
+    assert.ok(Math.hypot(crystalPlayer.position.x - crystalStage.crystal.position.x, crystalPlayer.position.y - crystalStage.crystal.position.y) <= 3.2);
+    const hitLimit = action === 'space' ? 4 : 3;
+    for (let hit = 0; hit < hitLimit && crystalStage.world.winner === null; hit += 1) {
+      stepSimulation(crystalStage.world, 1, command);
+      if (action === 'Q' && crystalStage.world.winner === null && hit < hitLimit - 1) {
+        stepSimulation(crystalStage.world, 120);
+      }
+    }
+    assert.ok(crystalStage.crystal.hp < initialCrystalHp, 'the player damages the real-coordinate crystal');
     assert.equal(crystalStage.crystal.alive, false);
     assert.equal(crystalStage.world.winner, 'blue');
+    assert.equal(crystalStage.world.endReason, 'crystal-destroyed');
   }
 });
 
@@ -1684,7 +1704,6 @@ test('AI heroes and minions attack only the next structure on their own lane', (
   inner.position = { x: 0.2, y: -8 };
   inner.attackRange = 0;
   inner.attackDamage = 0;
-  crystal.position = { x: 0.5, y: -8 };
   stepSimulation(world, 1);
   assert.ok(outer.hp < outer.maxHp);
   assert.equal(inner.hp, inner.maxHp);
