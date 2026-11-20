@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { stripTypeScriptTypes } from 'node:module';
+import { runInNewContext } from 'node:vm';
 import {
   AI_RULES,
   ASSIST_WINDOW_TICKS,
@@ -1728,9 +1730,73 @@ test('AI heroes and minions attack only the next structure on their own lane', (
 
 test('opening match settings freezes the fixed-step loop and Continue resumes it', async () => {
   const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
-  const frame = source.match(/function frame\(now: number\): void \{([\s\S]*?)\n\}/);
-  assert.ok(frame, 'main loop frame function exists');
-  assert.match(frame[1], /if \(!world \|\| paused\) \{[\s\S]*?accumulator = 0;[\s\S]*?hud\.update/);
-  assert.match(source, /function openSettings\(mode: SettingsMode\): void \{[\s\S]*?if \(mode === 'match'\) \{[\s\S]*?paused = true;[\s\S]*?hud\.setPaused\(true\);/);
-  assert.match(source, /function closeSettings\(\): void \{[\s\S]*?if \(wasMatchSettings\) \{\s*paused = false;\s*hud\.setPaused\(false\);/);
+  // Execute the actual entry-point functions against a real simulation with stubbed rendering.
+  // A brace-balanced extraction avoids coupling the test to the syntax of the pause guard.
+  function extractFunction(name) {
+    const from = source.indexOf('function ' + name + '(');
+    assert.ok(from >= 0, 'expected main.ts to define ' + name);
+    const opening = source.indexOf('{', from);
+    let nesting = 0;
+    for (let cursor = opening; cursor < source.length; cursor += 1) {
+      if (source[cursor] === '{') nesting += 1;
+      if (source[cursor] === '}' && --nesting === 0) return source.slice(from, cursor + 1);
+    }
+    throw new Error('Unterminated main.ts function: ' + name);
+  }
+
+  const simulation = createSimulation(20261120, 'vanguard');
+  const pausedSignals = [];
+  const runtime = {
+    session: { world: simulation, selectedRole: null },
+    renderScene: { syncSimulation() {} },
+    window: { requestAnimationFrame() { return 1; } },
+    hud: {
+      update() {},
+      setShopOpen() {},
+      setScoreboardOpen() {},
+      setPaused(value) { pausedSignals.push(value); },
+      setSettingsValues() {},
+      setSettingsOpen() {},
+    },
+    settingsValues: { masterVolume: 80, sfxVolume: 90 },
+    settingsOpen: false,
+    settingsMode: 'menu',
+    paused: false,
+    shopOpen: false,
+    scoreboardOpen: false,
+    scoreboardPinned: false,
+    tabHeld: false,
+    animationFrame: 0,
+    previousFrameTime: 0,
+    hudAccumulator: 0,
+    accumulator: 0,
+    FIXED_STEP_SECONDS,
+    stepSimulation,
+    consumePlayerCommand: () => ({ enabled: true }),
+    clearPlayerInput() {},
+    handleSimulationEvents() {},
+  };
+  const functions = ['frame', 'openSettings', 'closeSettings'].map(extractFunction).join('\n');
+  runInNewContext(stripTypeScriptTypes(functions, { mode: 'transform' }), runtime);
+
+  runtime.frame(1000);  // Establish the animation clock.
+  runtime.frame(1100);  // 0.1s => 2 fixed ticks.
+  assert.equal(simulation.tick, 2, 'a running match advances its simulation');
+
+  runtime.openSettings('match');
+  assert.equal(runtime.paused, true);
+  assert.equal(runtime.settingsOpen, true);
+  runtime.frame(1200);
+  runtime.frame(1300);
+  assert.equal(simulation.tick, 2, 'opening match settings stops all simulation steps');
+  assert.equal(runtime.accumulator, 0, 'paused frames discard accumulated time');
+
+  runtime.closeSettings();
+  assert.equal(runtime.paused, false);
+  assert.equal(runtime.settingsOpen, false);
+  runtime.frame(1400);  // Re-establish the clock without catching up paused time.
+  assert.equal(simulation.tick, 2);
+  runtime.frame(1500);
+  assert.equal(simulation.tick, 4, 'Continue resumes the fixed-step simulation');
+  assert.deepEqual(pausedSignals, [true, false]);
 });

@@ -148,8 +148,8 @@ export function createAudioController(): AudioController {
   let masterOutput: GainNode | null = null;
   let muted = false;
   // The app injects its persisted 80/90 settings before unlock; unity remains the legacy fallback until that injection.
-  let masterVolume = AUDIO_GAIN.defaultMasterVolume;
-  let sfxVolume = AUDIO_GAIN.defaultSfxVolume;
+  let masterVolume: number = AUDIO_GAIN.defaultMasterVolume;
+  let sfxVolume: number = AUDIO_GAIN.defaultSfxVolume;
   let volumeSettingsApplied = false;
   const outputVolumeMultiplier = (): number => volumeSettingsApplied ? masterVolume * sfxVolume : 1;
   const scheduledVoices: ScheduledVoice[] = [];

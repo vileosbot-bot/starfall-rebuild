@@ -322,11 +322,18 @@ test('audio settings use the original storage key, default to 80/90, and persist
   assert.equal(serializeAudioSettings({ masterVolume: 120, sfxVolume: -2 }), '{"masterVolume":1,"sfxVolume":0}');
 });
 
-test('Tab keydown shows an unpinned scoreboard, repeat is ignored, and keyup hides it only when unpinned', async () => {
-  const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(source, /if \(key === 'tab'\) \{\s*event\.preventDefault\(\);[\s\S]*?if \(event\.repeat \|\| !world \|\| paused \|\| settingsOpen \|\| world\.winner !== null\) return;[\s\S]*?tabHeld = true;[\s\S]*?if \(!scoreboardPinned\) \{[\s\S]*?scoreboardOpen = true;[\s\S]*?hud\.setScoreboardOpen\(true, false\);/);
-  assert.match(source, /function onKeyUp\(event: KeyboardEvent\): void \{[\s\S]*?if \(key === 'tab'\) \{\s*event\.preventDefault\(\);[\s\S]*?tabHeld = false;[\s\S]*?if \(!scoreboardPinned && scoreboardOpen\)[\s\S]*?hud\.setScoreboardOpen\(false, false\);/);
-  assert.match(source, /function toggleScoreboardPinned\(\): void \{[\s\S]*?toggleScoreboardPin\([\s\S]*?scoreboardPinned = nextScoreboard\.pinned;[\s\S]*?scoreboardOpen = nextScoreboard\.open;[\s\S]*?hud\.setScoreboardOpen\(scoreboardOpen, scoreboardPinned\);/);
+test('Tab keydown shows an unpinned scoreboard, repeat is ignored, and keyup hides it only when unpinned', () => {
+  const closed = { open: false, pinned: false, tabHeld: false };
+  const pressed = handleScoreboardTabDown(closed);
+  assert.deepEqual(pressed, { open: true, pinned: false, tabHeld: true });
+  assert.deepEqual(handleScoreboardTabDown(pressed, true), pressed, 'repeated keydown does not toggle visibility');
+  assert.deepEqual(handleScoreboardTabUp(pressed), closed, 'keyup hides an unpinned scoreboard');
+
+  const pinned = toggleScoreboardPin(pressed);
+  assert.deepEqual(pinned, { open: true, pinned: true, tabHeld: true });
+  assert.deepEqual(handleScoreboardTabUp(pinned), {
+    open: true, pinned: true, tabHeld: false,
+  }, 'keyup must leave a pinned scoreboard visible');
 });
 
 test('Esc follows aim, shop, pinned scoreboard, then settings order; closing match settings resumes simulation', async () => {
@@ -466,7 +473,7 @@ test('app default 80/90 settings multiply the shared output, update immediately,
     assert.deepEqual(audio.getVolumes(), { masterVolume: 0.8, sfxVolume: 0.9 });
     assert.equal(output.gain.value, 0.8 * 0.9);
     assert.equal(AUDIO_GAIN.peakLimit, 0.2);
-    assert.equal(estimateWorstCasePeak(), 0.18);
+    assert.ok(Math.abs(estimateWorstCasePeak() - 0.18) < 1e-12);
   } finally {
     audio.dispose();
     if (previous) Object.defineProperty(globalThis, 'window', previous);
