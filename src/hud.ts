@@ -3,6 +3,67 @@ import type { EquipmentDefinition, EquipmentId, HeroRole, PlayerSkillKey, SimEnt
 
 export type EquipmentAvailability = 'available' | 'insufficient-gold' | 'inventory-full' | 'already-owned';
 
+export interface AudioSettings { masterVolume: number; sfxVolume: number; }
+export type SettingsMode = 'match' | 'menu';
+
+export interface ScoreboardState {
+  open: boolean;
+  pinned: boolean;
+  tabHeld: boolean;
+}
+
+export function handleScoreboardTabDown(state: ScoreboardState, repeat = false): ScoreboardState {
+  if (repeat) return state;
+  return { ...state, tabHeld: true, open: state.pinned ? state.open : true };
+}
+
+export function handleScoreboardTabUp(state: ScoreboardState): ScoreboardState {
+  return { ...state, tabHeld: false, open: state.pinned ? state.open : false };
+}
+
+export function toggleScoreboardPin(state: ScoreboardState): ScoreboardState {
+  const pinned = !state.pinned;
+  return { ...state, pinned, open: pinned || state.tabHeld };
+}
+
+export function cancelScoreboardPin(state: ScoreboardState): ScoreboardState {
+  return { ...state, pinned: false, open: false };
+}
+export const SETTINGS_STORAGE_KEY = 'starfall.settings.v1';
+export const DEFAULT_AUDIO_SETTINGS: Readonly<AudioSettings> = Object.freeze({ masterVolume: 80, sfxVolume: 90 });
+
+function normalizeVolume(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(Math.max(0, Math.min(100, value)))
+    : fallback;
+}
+
+function normalizeStoredVolume(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  const percent = value >= 0 && value <= 1 ? value * 100 : value;
+  return normalizeVolume(percent, fallback);
+}
+
+export function parseAudioSettings(raw: string | null): AudioSettings {
+  if (!raw) return { ...DEFAULT_AUDIO_SETTINGS };
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      masterVolume: normalizeStoredVolume(parsed.masterVolume, DEFAULT_AUDIO_SETTINGS.masterVolume),
+      sfxVolume: normalizeStoredVolume(parsed.sfxVolume, DEFAULT_AUDIO_SETTINGS.sfxVolume),
+    };
+  } catch {
+    return { ...DEFAULT_AUDIO_SETTINGS };
+  }
+}
+
+export function serializeAudioSettings(settings: AudioSettings): string {
+  return JSON.stringify({
+    masterVolume: normalizeVolume(settings.masterVolume, DEFAULT_AUDIO_SETTINGS.masterVolume) / 100,
+    sfxVolume: normalizeVolume(settings.sfxVolume, DEFAULT_AUDIO_SETTINGS.sfxVolume) / 100,
+  });
+}
+
 export const HERO_ROLES = ['vanguard', 'ranger', 'arcanist', 'duelist', 'guardian'] as const;
 export const HERO_LABELS: Record<HeroRole, string> = {
   vanguard: 'Vanguard',
@@ -351,8 +412,10 @@ export interface HudController {
   setActive(active: boolean): void;
   setSelectedHero(role: HeroRole): void;
   setShopOpen(open: boolean): void;
-  setScoreboardOpen(open: boolean): void;
+  setScoreboardOpen(open: boolean, pinned: boolean): void;
   setPaused(paused: boolean): void;
+  setSettingsOpen(open: boolean, mode: SettingsMode): void;
+  setSettingsValues(values: AudioSettings): void;
   setMuted(muted: boolean): void;
   setHint(key: string): void;
   setAimingSkill(key: 'Q' | 'E' | 'R' | null): void;
@@ -360,7 +423,20 @@ export interface HudController {
   setShopFeedback(message: string): void;
 }
 
-export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => void): HudController {
+export interface HudCallbacks {
+  onOpenSettings?: (mode: SettingsMode) => void;
+  onSettingsChange?: (values: AudioSettings) => void;
+  onSettingsContinue?: () => void;
+  onSettingsDone?: () => void;
+  onSettingsReturnToMenu?: () => void;
+  onScoreboardPinToggle?: () => void;
+}
+
+export function createHud(
+  root: HTMLElement,
+  onPurchase?: (success: boolean) => void,
+  callbacks: HudCallbacks = {},
+): HudController {
   const required = <T extends HTMLElement>(selector: string): T => {
     const element = root.querySelector<T>(selector);
     if (!element) throw new Error(`Missing HUD element: ${selector}`);
@@ -377,6 +453,21 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
   const shopFeedback = required<HTMLElement>('#shop-feedback');
   const shopTargetName = required<HTMLElement>('#shop-target-name');
   const scoreboardPanel = required<HTMLElement>('#scoreboard-panel');
+  const scoreboardButton = required<HTMLButtonElement>('#hud-scoreboard-button');
+  const scoreboardButtonLabel = required<HTMLElement>('#scoreboard-button-label');
+  const hudSettingsButton = required<HTMLButtonElement>('#hud-settings-button');
+  const menuSettingsButton = required<HTMLButtonElement>('#open-menu-settings');
+  const settingsOverlay = required<HTMLElement>('#settings-overlay');
+  const settingsTitle = required<HTMLElement>('#settings-title');
+  const masterVolumeInput = required<HTMLInputElement>('#master-volume');
+  const sfxVolumeInput = required<HTMLInputElement>('#sfx-volume');
+  const masterVolumeValue = required<HTMLElement>('#master-volume-value');
+  const sfxVolumeValue = required<HTMLElement>('#sfx-volume-value');
+  const settingsResetButton = required<HTMLButtonElement>('#settings-reset');
+  const settingsMatchActions = required<HTMLElement>('#settings-match-actions');
+  const settingsMenuDone = required<HTMLButtonElement>('#settings-menu-done');
+  const settingsReturnMenuButton = required<HTMLButtonElement>('#settings-return-menu');
+  const settingsContinueButton = required<HTMLButtonElement>('#settings-continue');
   const pauseOverlay = required<HTMLElement>('#pause-overlay');
   const winnerOverlay = required<HTMLElement>('#winner-overlay');
   const winnerTitle = required<HTMLElement>('#winner-title');
@@ -397,6 +488,8 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
   let selectedHeroRole: HeroRole = 'vanguard';
   let active = false;
   let playerTargetHint: string | null = null;
+  let settingsValues: AudioSettings = { ...DEFAULT_AUDIO_SETTINGS };
+  let returnMenuConfirmationPending = false;
 
   const resourcePanel = document.createElement('div');
   resourcePanel.style.cssText = 'display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:118px;padding:2px 5px;color:#c9d8e9;font-size:10px;';
@@ -431,6 +524,56 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
 
   const defaultActionHint = 'WASD/方向键移动 · 空格攻击 · Q/E/R技能 · F闪现 · G疗伤 · B回城';
   actionHint.textContent = defaultActionHint;
+
+  function setSettingsValues(values: AudioSettings): void {
+    settingsValues = {
+      masterVolume: normalizeVolume(values.masterVolume, DEFAULT_AUDIO_SETTINGS.masterVolume),
+      sfxVolume: normalizeVolume(values.sfxVolume, DEFAULT_AUDIO_SETTINGS.sfxVolume),
+    };
+    masterVolumeInput.value = String(settingsValues.masterVolume);
+    sfxVolumeInput.value = String(settingsValues.sfxVolume);
+    masterVolumeValue.textContent = settingsValues.masterVolume + '%';
+    sfxVolumeValue.textContent = settingsValues.sfxVolume + '%';
+  }
+
+  function setSettingsOpen(open: boolean, mode: SettingsMode): void {
+    settingsOverlay.hidden = !open;
+    settingsTitle.textContent = mode === 'match' ? '游戏暂停' : '设置';
+    settingsMatchActions.hidden = !open || mode !== 'match';
+    settingsMenuDone.hidden = !open || mode !== 'menu';
+    returnMenuConfirmationPending = false;
+    settingsReturnMenuButton.textContent = '返回主菜单';
+  }
+
+  masterVolumeInput.addEventListener('input', () => {
+    setSettingsValues({ ...settingsValues, masterVolume: Number(masterVolumeInput.value) });
+    callbacks.onSettingsChange?.({ ...settingsValues });
+  });
+  sfxVolumeInput.addEventListener('input', () => {
+    setSettingsValues({ ...settingsValues, sfxVolume: Number(sfxVolumeInput.value) });
+    callbacks.onSettingsChange?.({ ...settingsValues });
+  });
+  settingsResetButton.addEventListener('click', () => {
+    setSettingsValues({ ...DEFAULT_AUDIO_SETTINGS });
+    callbacks.onSettingsChange?.({ ...settingsValues });
+  });
+  settingsContinueButton.addEventListener('click', () => callbacks.onSettingsContinue?.());
+  settingsMenuDone.addEventListener('click', () => callbacks.onSettingsDone?.());
+  settingsReturnMenuButton.addEventListener('click', () => {
+    if (!returnMenuConfirmationPending) {
+      returnMenuConfirmationPending = true;
+      settingsReturnMenuButton.textContent = '再次点击确认';
+      return;
+    }
+    returnMenuConfirmationPending = false;
+    settingsReturnMenuButton.textContent = '返回主菜单';
+    callbacks.onSettingsReturnToMenu?.();
+  });
+  menuSettingsButton.addEventListener('click', () => callbacks.onOpenSettings?.('menu'));
+  hudSettingsButton.addEventListener('click', () => callbacks.onOpenSettings?.('match'));
+  scoreboardButton.addEventListener('click', () => callbacks.onScoreboardPinToggle?.());
+  setSettingsValues(settingsValues);
+  setSettingsOpen(false, 'menu');
 
   function setAimingSkill(key: 'Q' | 'E' | 'R' | null): void {
     actionHint.textContent = key ? getAimingSkillHint(key) : playerTargetHint ?? defaultActionHint;
@@ -582,6 +725,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
       }
       shopPanel.hidden = true;
       scoreboardPanel.hidden = true;
+      settingsOverlay.hidden = true;
       pauseOverlay.hidden = true;
       winnerOverlay.hidden = true;
       minimapCanvas.getContext('2d')?.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
@@ -609,14 +753,19 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
       shopPanel.hidden = !open;
       if (open) scoreboardPanel.hidden = true;
     },
-    setScoreboardOpen(open) {
+    setScoreboardOpen(open, pinned) {
       if (open && !active) return;
       scoreboardPanel.hidden = !open;
+      scoreboardButton.setAttribute('aria-pressed', String(pinned));
+      scoreboardButton.classList.toggle('is-pinned', pinned);
+      scoreboardButtonLabel.textContent = pinned ? '战况 · 固定' : '战况';
       if (open) shopPanel.hidden = true;
     },
     setPaused(paused) {
       pauseOverlay.hidden = !active || !paused;
     },
+    setSettingsOpen,
+    setSettingsValues,
     setMuted(muted) {
       audioState.textContent = muted ? '音效：静音' : '音效：开启';
     },

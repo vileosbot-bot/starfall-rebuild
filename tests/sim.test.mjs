@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   AI_RULES,
   ASSIST_WINDOW_TICKS,
@@ -1722,4 +1723,14 @@ test('AI heroes and minions attack only the next structure on their own lane', (
   assert.ok(outer.hp < outer.maxHp);
   assert.equal(inner.hp, inner.maxHp);
   assert.equal(crystal.hp, crystal.maxHp);
+});
+
+
+test('opening match settings freezes the fixed-step loop and Continue resumes it', async () => {
+  const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const frame = source.match(/function frame\(now: number\): void \{([\s\S]*?)\n\}/);
+  assert.ok(frame, 'main loop frame function exists');
+  assert.match(frame[1], /if \(!world \|\| paused\) \{[\s\S]*?accumulator = 0;[\s\S]*?hud\.update/);
+  assert.match(source, /function openSettings\(mode: SettingsMode\): void \{[\s\S]*?if \(mode === 'match'\) \{[\s\S]*?paused = true;[\s\S]*?hud\.setPaused\(true\);/);
+  assert.match(source, /function closeSettings\(\): void \{[\s\S]*?if \(wasMatchSettings\) \{\s*paused = false;\s*hud\.setPaused\(false\);/);
 });

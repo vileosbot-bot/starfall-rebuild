@@ -2,6 +2,8 @@ export interface AudioController {
   unlock(): void;
   toggleMuted(): boolean;
   setMuted(muted: boolean): void;
+  setVolumes(masterVolume: number, sfxVolume: number): void;
+  getVolumes(): { masterVolume: number; sfxVolume: number };
   isMuted(): boolean;
   playAttack(): void;
   playGold(): void;
@@ -17,6 +19,8 @@ export const AUDIO_GAIN = {
   outputBase: 1,
   peakLimit: 0.2,
   safetyFactor: 0.9,
+  defaultMasterVolume: 0.8,
+  defaultSfxVolume: 0.9,
 } as const;
 
 const MASTER_VOLUME = AUDIO_GAIN.voiceMaster;
@@ -143,6 +147,11 @@ export function createAudioController(): AudioController {
   let context: AudioContext | null = null;
   let masterOutput: GainNode | null = null;
   let muted = false;
+  // The app injects its persisted 80/90 settings before unlock; unity remains the legacy fallback until that injection.
+  let masterVolume = AUDIO_GAIN.defaultMasterVolume;
+  let sfxVolume = AUDIO_GAIN.defaultSfxVolume;
+  let volumeSettingsApplied = false;
+  const outputVolumeMultiplier = (): number => volumeSettingsApplied ? masterVolume * sfxVolume : 1;
   const scheduledVoices: ScheduledVoice[] = [];
 
   function safeOutputGain(activePeakLevel: number): number {
@@ -169,7 +178,7 @@ export function createAudioController(): AudioController {
     // setValueAtTime is intentional: the shared output gain must clamp at the exact
     // scheduled boundary, and muting must take effect at the current audio time.
     masterOutput.gain.cancelScheduledValues(now);
-    masterOutput.gain.setValueAtTime(muted ? 0 : safeOutputGain(activePeakLevel), now);
+    masterOutput.gain.setValueAtTime(muted ? 0 : safeOutputGain(activePeakLevel) * outputVolumeMultiplier(), now);
 
     for (let index = 0; index < events.length;) {
       const eventTime = events[index].time;
@@ -180,7 +189,7 @@ export function createAudioController(): AudioController {
       }
       activePeakLevel = Math.max(0, activePeakLevel + delta);
       if (eventTime > now) {
-        masterOutput.gain.setValueAtTime(muted ? 0 : safeOutputGain(activePeakLevel), eventTime);
+        masterOutput.gain.setValueAtTime(muted ? 0 : safeOutputGain(activePeakLevel) * outputVolumeMultiplier(), eventTime);
       }
     }
   }
@@ -205,7 +214,7 @@ export function createAudioController(): AudioController {
       context ??= new window.AudioContext();
       if (!masterOutput) {
         masterOutput = context.createGain();
-        masterOutput.gain.setValueAtTime(muted ? 0 : MASTER_OUTPUT_GAIN, context.currentTime);
+        masterOutput.gain.setValueAtTime(muted ? 0 : MASTER_OUTPUT_GAIN * outputVolumeMultiplier(), context.currentTime);
         masterOutput.connect(context.destination);
       }
       if (context.state === 'suspended') void context.resume();
@@ -273,6 +282,17 @@ export function createAudioController(): AudioController {
     refreshMasterOutput();
   }
 
+  function setVolumes(master: number, sfx: number): void {
+    masterVolume = Number.isFinite(master) ? Math.max(0, Math.min(1, master)) : AUDIO_GAIN.defaultMasterVolume;
+    sfxVolume = Number.isFinite(sfx) ? Math.max(0, Math.min(1, sfx)) : AUDIO_GAIN.defaultSfxVolume;
+    volumeSettingsApplied = true;
+    refreshMasterOutput();
+  }
+
+  function getVolumes(): { masterVolume: number; sfxVolume: number } {
+    return { masterVolume, sfxVolume };
+  }
+
   return {
     unlock,
     toggleMuted() {
@@ -280,6 +300,8 @@ export function createAudioController(): AudioController {
       return muted;
     },
     setMuted,
+    setVolumes,
+    getVolumes,
     isMuted() {
       return muted;
     },

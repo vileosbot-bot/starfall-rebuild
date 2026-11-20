@@ -18,7 +18,16 @@ import {
   formatChannelHudLabel,
   getMinimapMarkers,
   getScoreboardCombatStats,
+  DEFAULT_AUDIO_SETTINGS,
+  SETTINGS_STORAGE_KEY,
+  parseAudioSettings,
+  serializeAudioSettings,
+  handleScoreboardTabDown,
+  handleScoreboardTabUp,
+  toggleScoreboardPin,
+  cancelScoreboardPin,
 } from '../src/hud.ts';
+import { AUDIO_GAIN, createAudioController, estimateWorstCasePeak } from '../src/audio.ts';
 
 test('game time formats zero, ten seconds, one minute, and ten minutes from fixed simulation ticks', () => {
   assert.equal(formatGameTime(0), '00:00');
@@ -120,7 +129,7 @@ test('main mouse input is canvas-only and respects overlay, pause, death, winner
   assert.match(source, /renderScene\.canvas\.addEventListener\('mousedown', onCanvasMouseDown\)/);
   assert.match(source, /renderScene\.canvas\.addEventListener\('contextmenu', onCanvasContextMenu\)/);
   assert.doesNotMatch(source, /window\.addEventListener\('mousedown'/);
-  assert.match(source, /!world \|\| paused \|\| world\.winner !== null \|\| shopOpen \|\| scoreboardOpen \|\|[\s\S]*?!isPlayerHeroAlive\(world\) \|\| aimingSkill !== null/);
+  assert.match(source, /!world \|\| paused \|\| settingsOpen \|\| world\.winner !== null \|\| shopOpen \|\| scoreboardOpen \|\|[\s\S]*?!isPlayerHeroAlive\(world\) \|\| aimingSkill !== null/);
   assert.match(source, /function onCanvasContextMenu\(event: MouseEvent\): void \{\s*event\.preventDefault\(\);/);
   assert.match(source, /function clearPlayerInput\(\): void \{[\s\S]*?playerMoveTarget = null;[\s\S]*?playerAttackTargetId = null;/);
   assert.match(source, /if \(playerMoveTarget\) \{\s*playerMoveTarget = null;/);
@@ -135,8 +144,8 @@ test('main mouse input is canvas-only and respects overlay, pause, death, winner
 
 test('main input wiring starts Q/E/R aim on keydown, dispatches on keyup, and clears aim on cancel/death', async () => {
   const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
-  assert.match(source, /if \(event\.repeat \|\| !session\.world\) return;/);
-  assert.match(source, /if \(key === 'escape'\) \{[\s\S]*?clearPlayerInput\(\);[\s\S]*?paused = !paused;/);
+  assert.match(source, /if \(event\.repeat\) return;/);
+  assert.match(source, /if \(key === 'escape'\) \{[\s\S]*?if \(aimingSkill !== null\)[\s\S]*?if \(shopOpen\)[\s\S]*?if \(scoreboardPinned\)[\s\S]*?openSettings\('match'\);/);
   assert.match(source, /if \(\['q', 'e', 'r'\]\.includes\(key\)\) \{[\s\S]*?aimingSkill = key\.toUpperCase\(\)[\s\S]*?hud\.setAimingSkill\(aimingSkill\);[\s\S]*?return;/);
   const aimedKeydown = source.match(/if \(\['q', 'e', 'r'\]\.includes\(key\)\) \{([\s\S]*?)\n  \}\n  if \(\['f', 'g', 'b'\]/);
   assert.ok(aimedKeydown);
@@ -288,4 +297,179 @@ test('main mouse target selection is lane-local and unlocks the crystal after an
   assert.equal(isSelectable(world, crystal.id, laneFromY), true, 'one inner tower falling in any lane unlocks crystal selection');
   assert.equal(isSelectable(world, enemyHero.id, laneFromY), true, 'enemy hero selection remains unchanged');
   assert.equal(isSelectable(world, enemyMinion.id, laneFromY), true, 'enemy minion selection remains unchanged');
+});
+
+
+test('audio settings use the original storage key, default to 80/90, and persist only supported values', () => {
+  assert.equal(SETTINGS_STORAGE_KEY, 'starfall.settings.v1');
+  assert.deepEqual(DEFAULT_AUDIO_SETTINGS, { masterVolume: 80, sfxVolume: 90 });
+  assert.deepEqual(parseAudioSettings(null), { masterVolume: 80, sfxVolume: 90 });
+  assert.deepEqual(parseAudioSettings('{bad json'), { masterVolume: 80, sfxVolume: 90 });
+  assert.deepEqual(parseAudioSettings('{"masterVolume":0.5,"sfxVolume":0.9,"musicVolume":0.5}'), {
+    masterVolume: 50,
+    sfxVolume: 90,
+  });
+  assert.deepEqual(parseAudioSettings('{"masterVolume":120.4,"sfxVolume":-4,"quality":"high"}'), {
+    masterVolume: 100,
+    sfxVolume: 0,
+  });
+  assert.deepEqual(parseAudioSettings('{"masterVolume":"50","sfxVolume":null}'), {
+    masterVolume: 80,
+    sfxVolume: 90,
+  });
+  assert.equal(serializeAudioSettings(DEFAULT_AUDIO_SETTINGS), '{"masterVolume":0.8,"sfxVolume":0.9}');
+  assert.equal(serializeAudioSettings({ masterVolume: 50, sfxVolume: 90 }), '{"masterVolume":0.5,"sfxVolume":0.9}');
+  assert.equal(serializeAudioSettings({ masterVolume: 120, sfxVolume: -2 }), '{"masterVolume":1,"sfxVolume":0}');
+});
+
+test('Tab keydown shows an unpinned scoreboard, repeat is ignored, and keyup hides it only when unpinned', async () => {
+  const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(source, /if \(key === 'tab'\) \{\s*event\.preventDefault\(\);[\s\S]*?if \(event\.repeat \|\| !world \|\| paused \|\| settingsOpen \|\| world\.winner !== null\) return;[\s\S]*?tabHeld = true;[\s\S]*?if \(!scoreboardPinned\) \{[\s\S]*?scoreboardOpen = true;[\s\S]*?hud\.setScoreboardOpen\(true, false\);/);
+  assert.match(source, /function onKeyUp\(event: KeyboardEvent\): void \{[\s\S]*?if \(key === 'tab'\) \{\s*event\.preventDefault\(\);[\s\S]*?tabHeld = false;[\s\S]*?if \(!scoreboardPinned && scoreboardOpen\)[\s\S]*?hud\.setScoreboardOpen\(false, false\);/);
+  assert.match(source, /function toggleScoreboardPinned\(\): void \{[\s\S]*?toggleScoreboardPin\([\s\S]*?scoreboardPinned = nextScoreboard\.pinned;[\s\S]*?scoreboardOpen = nextScoreboard\.open;[\s\S]*?hud\.setScoreboardOpen\(scoreboardOpen, scoreboardPinned\);/);
+});
+
+test('Esc follows aim, shop, pinned scoreboard, then settings order; closing match settings resumes simulation', async () => {
+  const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const escapeBlock = source.match(/if \(key === 'escape'\) \{([\s\S]*?)\n  \}\n  if \(settingsOpen/);
+  assert.ok(escapeBlock);
+  const order = [
+    escapeBlock[1].indexOf('if (aimingSkill !== null)'),
+    escapeBlock[1].indexOf('if (shopOpen)'),
+    escapeBlock[1].indexOf('if (scoreboardPinned)'),
+    escapeBlock[1].indexOf("openSettings('match')"),
+  ];
+  assert.ok(order.every((index) => index >= 0));
+  assert.deepEqual([...order].sort((a, b) => a - b), order);
+  assert.match(source, /function openSettings\(mode: SettingsMode\): void \{[\s\S]*?if \(mode === 'match'\) \{[\s\S]*?paused = true;[\s\S]*?hud\.setPaused\(true\);[\s\S]*?hud\.setSettingsOpen\(true, mode\);/);
+  assert.match(source, /function closeSettings\(\): void \{[\s\S]*?settingsOpen = false;[\s\S]*?if \(wasMatchSettings\) \{\s*paused = false;\s*hud\.setPaused\(false\);/);
+  assert.match(source, /if \(settingsOpen \|\| paused \|\| world\.winner !== null\) return;/);
+  assert.match(source, /!world \|\| paused \|\| settingsOpen \|\| world\.winner !== null \|\| shopOpen \|\| scoreboardOpen/);
+});
+
+test('settings inputs immediately update audio, persist to localStorage, and restore 80/90 defaults', async () => {
+  const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  const hudSource = await readFile(new URL('../src/hud.ts', import.meta.url), 'utf8');
+  assert.match(source, /audio\.setVolumes\(settingsValues\.masterVolume \/ 100, settingsValues\.sfxVolume \/ 100\)/);
+  assert.match(source, /window\.localStorage\.setItem\(SETTINGS_STORAGE_KEY, serializeAudioSettings\(settingsValues\)\)/);
+  assert.match(hudSource, /masterVolumeInput\.addEventListener\('input'/);
+  assert.match(hudSource, /sfxVolumeInput\.addEventListener\('input'/);
+  assert.match(hudSource, /settingsResetButton\.addEventListener\('click'[\s\S]*?DEFAULT_AUDIO_SETTINGS/);
+  assert.match(hudSource, /settingsReturnMenuButton\.addEventListener\('click'[\s\S]*?returnMenuConfirmationPending[\s\S]*?再次点击确认[\s\S]*?callbacks\.onSettingsReturnToMenu/);
+});
+
+test('title and HUD expose the three settings and scoreboard entry buttons with press-to-view copy', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const hudSource = await readFile(new URL('../src/hud.ts', import.meta.url), 'utf8');
+  assert.match(html, /id="open-menu-settings"[^>]*>设置<\/button>/);
+  assert.match(html, /id="hud-scoreboard-button"[^>]*>[\s\S]*?Tab<\/kbd>/);
+  assert.match(html, /id="hud-settings-button"[^>]*>暂停 \/ 设置[\s\S]*?Esc<\/kbd>/);
+  assert.match(html, /Tab 按住看战况 · P 商店 · Esc 设置 \/ 暂停/);
+  assert.match(html, /\.hud-actions \{[^}]*pointer-events: none/s);
+  assert.match(html, /\.hud-action-button \{[^}]*pointer-events: auto/s);
+  assert.match(html, /按住 Tab 查看 · 点战况按钮固定/);
+  assert.doesNotMatch(html, /按 Tab 关闭/);
+  assert.match(html, /id="settings-title"/);
+  assert.match(html, /id="master-volume" type="range" min="0" max="100"/);
+  assert.match(html, /id="sfx-volume" type="range" min="0" max="100"/);
+  assert.match(html, /id="settings-reset"[^>]*>恢复默认<\/button>/);
+  assert.match(html, /id="settings-return-menu"[^>]*>返回主菜单<\/button>/);
+  assert.match(html, /id="settings-continue"[^>]*>继续游戏<\/button>/);
+  assert.match(html, /id="settings-menu-done"[^>]*>完成<\/button>/);
+  assert.match(hudSource, /scoreboardButton\.setAttribute\('aria-pressed', String\(pinned\)\)/);
+  assert.match(hudSource, /menuSettingsButton\.addEventListener\('click', \(\) => callbacks\.onOpenSettings\?\.\('menu'\)\)/);
+  assert.match(hudSource, /hudSettingsButton\.addEventListener\('click', \(\) => callbacks\.onOpenSettings\?\.\('match'\)\)/);
+  assert.match(hudSource, /scoreboardButton\.addEventListener\('click', \(\) => callbacks\.onScoreboardPinToggle\?\.\(\)\)/);
+  assert.match(hudSource, /settingsContinueButton\.addEventListener\('click', \(\) => callbacks\.onSettingsContinue\?\.\(\)\)/);
+  assert.match(hudSource, /settingsMenuDone\.addEventListener\('click', \(\) => callbacks\.onSettingsDone\?\.\(\)\)/);
+  assert.match(hudSource, /settingsTitle\.textContent = mode === 'match' \? '游戏暂停' : '设置'/);
+});
+
+test('pause overlay is only an empty backdrop while the settings dialog supplies the pause title', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const hudSource = await readFile(new URL('../src/hud.ts', import.meta.url), 'utf8');
+  assert.match(html, /<div id="pause-overlay" class="overlay" hidden aria-hidden="true"><\/div>/);
+  assert.doesNotMatch(html, /id="pause-overlay"[^>]*>[\s\S]*?模拟已暂停/);
+  assert.match(html, /id="settings-overlay"[\s\S]*?role="dialog" aria-modal="true"/);
+  assert.match(hudSource, /pauseOverlay\.hidden = !active \|\| !paused/);
+});
+
+
+test('scoreboard hold, pin, unpin, and Escape transitions preserve the pinned-state rules', () => {
+  const initial = { open: false, pinned: false, tabHeld: false };
+  const held = handleScoreboardTabDown(initial);
+  assert.deepEqual(held, { open: true, pinned: false, tabHeld: true });
+  assert.deepEqual(handleScoreboardTabDown(held, true), held, 'repeat keydown does not create a new transition');
+  assert.deepEqual(handleScoreboardTabUp(held), initial, 'keyup hides an unpinned scoreboard');
+
+  const pinned = toggleScoreboardPin(initial);
+  assert.deepEqual(pinned, { open: true, pinned: true, tabHeld: false });
+  assert.deepEqual(handleScoreboardTabUp(pinned), pinned, 'keyup does not hide a pinned scoreboard');
+  assert.deepEqual(toggleScoreboardPin(pinned), initial, 'second button click unpins and hides when Tab is not held');
+  assert.deepEqual(cancelScoreboardPin(pinned), initial, 'Escape unpins and hides without opening another state');
+
+  const heldAndPinned = toggleScoreboardPin(held);
+  assert.deepEqual(heldAndPinned, { open: true, pinned: true, tabHeld: true });
+  assert.deepEqual(toggleScoreboardPin(heldAndPinned), held, 'unpinning while Tab remains held keeps the scoreboard visible until keyup');
+});
+
+
+class SettingsTestParam {
+  constructor(value = 0) { this.value = value; this.events = []; }
+  setValueAtTime(value, time) { this.value = value; this.events.push({ type: 'set', value, time }); }
+  cancelScheduledValues(time) { this.events.push({ type: 'cancel', time }); }
+}
+
+class SettingsTestGain {
+  constructor() { this.gain = new SettingsTestParam(1); this.connections = []; }
+  connect(target) { this.connections.push(target); return target; }
+}
+
+class SettingsTestAudioContext {
+  constructor() { this.currentTime = 10; this.state = 'running'; this.destination = {}; this.gains = []; }
+  createGain() { const gain = new SettingsTestGain(); this.gains.push(gain); return gain; }
+  resume() { return Promise.resolve(); }
+  close() { this.state = 'closed'; return Promise.resolve(); }
+}
+
+test('app default 80/90 settings multiply the shared output, update immediately, and preserve mute and peak limits', () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const context = new SettingsTestAudioContext();
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    writable: true,
+    value: { AudioContext: function AudioContext() { return context; } },
+  });
+  const audio = createAudioController();
+  try {
+    assert.deepEqual(DEFAULT_AUDIO_SETTINGS, { masterVolume: 80, sfxVolume: 90 });
+    assert.deepEqual(audio.getVolumes(), { masterVolume: 0.8, sfxVolume: 0.9 });
+    audio.setVolumes(DEFAULT_AUDIO_SETTINGS.masterVolume / 100, DEFAULT_AUDIO_SETTINGS.sfxVolume / 100);
+    audio.unlock();
+    const output = context.gains[0];
+    assert.equal(output.gain.value, 0.8 * 0.9);
+    assert.deepEqual(audio.getVolumes(), { masterVolume: 0.8, sfxVolume: 0.9 });
+
+    audio.setVolumes(0.5, 0.9);
+    assert.equal(output.gain.value, 0.5 * 0.9);
+    audio.setMuted(true);
+    assert.equal(output.gain.value, 0);
+    audio.setVolumes(0.25, 0.4);
+    assert.equal(output.gain.value, 0, 'volume changes do not unmute the output');
+    audio.setMuted(false);
+    assert.equal(output.gain.value, 0.25 * 0.4);
+
+    audio.setVolumes(2, -1);
+    assert.deepEqual(audio.getVolumes(), { masterVolume: 1, sfxVolume: 0 });
+    assert.equal(output.gain.value, 0);
+    audio.setVolumes(Number.NaN, 0.9);
+    assert.deepEqual(audio.getVolumes(), { masterVolume: 0.8, sfxVolume: 0.9 });
+    assert.equal(output.gain.value, 0.8 * 0.9);
+    assert.equal(AUDIO_GAIN.peakLimit, 0.2);
+    assert.equal(estimateWorstCasePeak(), 0.18);
+  } finally {
+    audio.dispose();
+    if (previous) Object.defineProperty(globalThis, 'window', previous);
+    else delete globalThis.window;
+  }
 });

@@ -49,7 +49,38 @@
         background: linear-gradient(135deg, #367eae, #285a82); color: #f4f9ff; font-size: 12px; font-weight: 800; cursor: pointer;
       }
       #enter-match:disabled { border-color: rgba(130, 145, 164, .18); background: rgba(120, 132, 148, .12); color: #718095; cursor: not-allowed; }
-      .return-menu-button { pointer-events: auto; margin-left: auto; padding: 8px 12px; background: rgba(58, 126, 185, .18); font-size: 10px; }
+      .hud-actions {
+        position: absolute; top: 16px; right: 18px; z-index: 2; display: flex; gap: 8px;
+        pointer-events: none;
+      }
+      .hud-action-button {
+        display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px;
+        border: 1px solid rgba(154, 190, 224, .3); border-radius: 9px;
+        background: rgba(10, 19, 29, .9); color: #e3effc; font-size: 11px; font-weight: 750;
+        cursor: pointer; pointer-events: auto; backdrop-filter: blur(12px);
+      }
+      .hud-action-button:hover, .hud-action-button.is-pinned { border-color: rgba(128, 196, 255, .75); background: rgba(44, 102, 145, .88); }
+      .hud-action-button kbd { padding: 2px 5px; border: 1px solid rgba(190, 212, 237, .28); border-radius: 4px; color: #9eb8d3; font: 700 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .settings-overlay { z-index: 8; background: transparent; pointer-events: auto; }
+      #pause-overlay { z-index: 3; pointer-events: auto; }
+      .settings-dialog {
+        width: min(500px, calc(100vw - 32px)); max-height: min(620px, calc(100vh - 32px)); overflow: auto;
+        padding: 20px; border: 1px solid rgba(155, 192, 228, .32); border-radius: 16px;
+        background: rgba(9, 17, 27, .98); box-shadow: 0 24px 80px rgba(0, 0, 0, .55); pointer-events: auto;
+      }
+      .settings-dialog h2 { margin: 0 0 18px; color: #f1f6ff; font-size: 20px; }
+      .settings-group { margin: 0 0 18px; padding: 14px; border: 1px solid rgba(143, 174, 207, .16); border-radius: 11px; background: rgba(255, 255, 255, .025); }
+      .settings-group h3 { margin: 0 0 14px; color: #9fc7e9; font-size: 11px; letter-spacing: .08em; }
+      .settings-slider-row { display: grid; grid-template-columns: 80px minmax(0, 1fr) 48px; align-items: center; gap: 12px; margin: 12px 0; color: #d7e4f2; font-size: 12px; }
+      .settings-slider-row input { width: 100%; accent-color: #71b7ed; cursor: pointer; }
+      .settings-slider-row output { color: #ffd879; font-variant-numeric: tabular-nums; text-align: right; }
+      .settings-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+      .settings-footer button { padding: 9px 12px; border: 1px solid rgba(143, 174, 207, .25); border-radius: 8px; background: rgba(255, 255, 255, .04); color: #dce9f7; font-size: 11px; cursor: pointer; }
+      .settings-footer button.primary { border-color: rgba(128, 196, 255, .55); background: rgba(58, 126, 185, .34); color: #f2f8ff; font-weight: 800; }
+      .settings-footer .link-button { padding-left: 0; border: 0; background: transparent; color: #8fc9f5; text-decoration: underline; }
+      .settings-match-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+      .settings-match-actions[hidden], #settings-menu-done[hidden] { display: none; }
+      .hero-select-settings { padding: 10px 16px; border: 1px solid rgba(143, 174, 207, .28); border-radius: 9px; background: rgba(255, 255, 255, .04); color: #dbe9f8; font-size: 12px; cursor: pointer; }
       .hero-card.is-selected { border-color: #80c4ff; background: rgba(65, 139, 195, .18); }
       .score-row.is-selected { border-radius: 5px; background: rgba(73, 143, 199, .18); color: #f1f8ff; }
       .hud-top {
@@ -141,7 +172,9 @@
       @media (max-width: 900px) {
         .hero-select-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .hero-roster { left: 10px; top: 84px; flex-wrap: wrap; max-width: 280px; }
-        #minimap { top: 84px; right: 10px; width: 144px; height: 144px; }
+        .hud-actions { top: 64px; right: 10px; gap: 5px; }
+        .hud-action-button { padding: 7px 9px; font-size: 10px; }
+        #minimap { top: 108px; right: 10px; width: 144px; height: 144px; }
         .hero-card { min-width: 104px; }
         .controls { right: 10px; bottom: 12px; max-width: 125px; line-height: 1.6; }
         #action-hint { left: 10px; bottom: 12px; max-width: 180px; }
@@ -158,7 +191,9 @@
         .team-score, .clock-block, .gold-block { min-width: 56px; }
         .team-score strong, .clock-block strong, .gold-block strong { font-size: 17px; }
         .hero-roster { display: none; }
-        #minimap { top: 72px; right: 10px; width: 124px; height: 124px; }
+        .hud-actions { top: 64px; right: 10px; gap: 5px; }
+        .hud-action-button { padding: 7px 9px; font-size: 10px; }
+        #minimap { top: 108px; right: 10px; width: 124px; height: 124px; }
         .skillbar { left: 8px; right: 8px; bottom: 10px; transform: none; justify-content: center; gap: 3px; padding: 6px; }
         .skill-slot { min-width: 0; grid-template-columns: 25px; justify-items: center; gap: 2px; padding: 4px; }
         .skill-slot span { display: none; }
@@ -200,6 +235,7 @@
           </div>
           <div class="hero-select-actions">
             <p id="selected-hero-summary" aria-live="polite">选择一位英雄，确认后进入战场。</p>
+            <button id="open-menu-settings" class="hero-select-settings" type="button">设置</button>
             <button id="enter-match" type="button" disabled>进入对局</button>
           </div>
         </div>
@@ -211,8 +247,11 @@
           <div class="team-score"><small>RED KILLS</small><strong id="red-score" class="red-text">0</strong></div>
           <div class="clock-block"><small>TIME</small><strong id="game-time">00:00</strong></div>
           <div class="gold-block"><small>PLAYER GOLD</small><strong id="team-gold" class="gold-text">0</strong></div>
-          <button id="return-menu" class="return-menu-button" type="button">返回菜单</button>
         </header>
+        <div class="hud-actions" aria-label="对局快捷操作">
+          <button id="hud-scoreboard-button" class="hud-action-button" type="button" aria-pressed="false"><span id="scoreboard-button-label">战况</span><kbd>Tab</kbd></button>
+          <button id="hud-settings-button" class="hud-action-button" type="button">暂停 / 设置 <kbd>Esc</kbd></button>
+        </div>
         <canvas id="minimap" width="192" height="192" aria-label="小地图"></canvas>
         <section class="hero-roster" aria-label="己方英雄头像">
           <div class="hero-card" data-hero-role="vanguard"><canvas width="64" height="64" data-avatar="vanguard" aria-label="Vanguard 原创头像"></canvas><div><span>Vanguard</span><small>前卫</small></div></div>
@@ -227,13 +266,13 @@
           <p id="shop-feedback" aria-live="polite">选择装备查看购买结果。</p>
         </section>
         <section id="scoreboard-panel" class="panel" hidden aria-label="战况">
-          <div class="panel-heading"><h2>战况</h2><small>按 Tab 关闭 · K 击杀 / D 死亡 / 金币</small></div>
+          <div class="panel-heading"><h2>战况</h2><small>按住 Tab 查看 · 点战况按钮固定 · K/A 击杀/助攻</small></div>
           <div class="scoreboard-grid">
             <div class="scoreboard-team"><h3 class="blue-text">蓝方</h3><div id="scoreboard-blue"></div></div>
             <div class="scoreboard-team"><h3 class="red-text">红方</h3><div id="scoreboard-red"></div></div>
           </div>
         </section>
-        <div id="pause-overlay" class="overlay" hidden><div class="overlay-card"><strong>模拟已暂停</strong><small>按 Esc 恢复模拟</small></div></div>
+        <div id="pause-overlay" class="overlay" hidden aria-hidden="true"></div>
         <div id="winner-overlay" class="overlay" hidden><div class="overlay-card"><strong id="winner-title">VICTORY</strong><small id="winner-subtitle">水晶已摧毁</small></div></div>
         <footer class="skillbar" aria-label="技能与操作提示">
           <div class="skill-slot"><kbd>Q</kbd><span>技能 Q</span></div>
@@ -245,7 +284,33 @@
           <div class="skill-slot"><kbd>Space</kbd><span>普攻</span></div>
         </footer>
         <div id="action-hint" aria-live="polite">技能与操作键已接入实际对局操作。</div>
-        <div class="controls">P 商店 · Tab 战况 · Esc 暂停 · M 音效<br /><span id="audio-state">音效：开启</span></div>
+        <div class="controls">Tab 按住看战况 · P 商店 · Esc 设置 / 暂停<br /><span id="audio-state">音效：开启</span></div>
+      </div>
+      <div id="settings-overlay" class="overlay settings-overlay" hidden>
+        <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+          <h2 id="settings-title">设置</h2>
+          <div class="settings-group">
+            <h3>声音</h3>
+            <label class="settings-slider-row" for="master-volume">
+              <span>主音量</span>
+              <input id="master-volume" type="range" min="0" max="100" step="1" value="80" />
+              <output id="master-volume-value" for="master-volume">80%</output>
+            </label>
+            <label class="settings-slider-row" for="sfx-volume">
+              <span>音效</span>
+              <input id="sfx-volume" type="range" min="0" max="100" step="1" value="90" />
+              <output id="sfx-volume-value" for="sfx-volume">90%</output>
+            </label>
+          </div>
+          <footer class="settings-footer">
+            <button id="settings-reset" class="link-button" type="button">恢复默认</button>
+            <div id="settings-match-actions" class="settings-match-actions" hidden>
+              <button id="settings-return-menu" type="button">返回主菜单</button>
+              <button id="settings-continue" class="primary" type="button">继续游戏</button>
+            </div>
+            <button id="settings-menu-done" class="primary" type="button" hidden>完成</button>
+          </footer>
+        </section>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

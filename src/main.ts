@@ -1,5 +1,6 @@
 import { createAudioController } from './audio.ts';
-import { createHud, createMatchSession, getPlayerHeroId, HERO_LABELS, HERO_ROLES } from './hud.ts';
+import { createHud, createMatchSession, getPlayerHeroId, HERO_LABELS, HERO_ROLES, parseAudioSettings, serializeAudioSettings, SETTINGS_STORAGE_KEY, handleScoreboardTabDown, handleScoreboardTabUp, toggleScoreboardPin, cancelScoreboardPin } from './hud.ts';
+import type { AudioSettings, SettingsMode } from './hud.ts';
 import { createRenderScene, projectSimPointToScreen, screenToGroundPoint } from './render.ts';
 import { createSimulation, FIXED_STEP_SECONDS, getEventsAfterSequence, stepSimulation } from './sim.ts';
 import type { HeroRole, PlayerCommand, PlayerSkillKey, Simulation } from './sim.ts';
@@ -22,17 +23,38 @@ const heroSelectScreen = required<HTMLElement>('#hero-select-screen');
 const heroSelectButtons = Array.from(app.querySelectorAll<HTMLButtonElement>('.hero-select-card[data-hero-role]'));
 const selectedHeroSummary = required<HTMLElement>('#selected-hero-summary');
 const enterMatchButton = required<HTMLButtonElement>('#enter-match');
-const returnMenuButton = required<HTMLButtonElement>('#return-menu');
+
+function readStoredAudioSettings(): AudioSettings {
+  try {
+    return parseAudioSettings(window.localStorage.getItem(SETTINGS_STORAGE_KEY));
+  } catch {
+    return parseAudioSettings(null);
+  }
+}
 
 const session = createMatchSession<Simulation>();
 const audio = createAudioController();
-const hud = createHud(app);
+let settingsValues: AudioSettings = readStoredAudioSettings();
+audio.setVolumes(settingsValues.masterVolume / 100, settingsValues.sfxVolume / 100);
+const hud = createHud(app, undefined, {
+  onOpenSettings: openSettings,
+  onSettingsChange: updateAudioSettings,
+  onSettingsContinue: closeSettings,
+  onSettingsDone: closeSettings,
+  onSettingsReturnToMenu: returnToMenu,
+  onScoreboardPinToggle: toggleScoreboardPinned,
+});
+hud.setSettingsValues(settingsValues);
 
 let selectedRole: HeroRole | null = null;
 let renderScene: ReturnType<typeof createRenderScene> | null = null;
 let paused = false;
 let shopOpen = false;
 let scoreboardOpen = false;
+let scoreboardPinned = false;
+let tabHeld = false;
+let settingsOpen = false;
+let settingsMode: SettingsMode = 'menu';
 let audioUnlocked = false;
 let eventCursor = 0; // Last consumed event sequence, not an array index.
 let accumulator = 0;
@@ -55,6 +77,11 @@ function clearAimingSkill(): void {
 
 function clearPlayerInput(): void {
   heldKeys.clear();
+  tabHeld = false;
+  if (!scoreboardPinned && scoreboardOpen) {
+    scoreboardOpen = false;
+    hud.setScoreboardOpen(false, false);
+  }
   pendingAttack = false;
   pendingSkill = null;
   playerMoveTarget = null;
@@ -139,7 +166,7 @@ function onCanvasMouseDown(event: MouseEvent): void {
   if (event.button === 2) event.preventDefault();
   const world = session.world;
   if (
-    !world || paused || world.winner !== null || shopOpen || scoreboardOpen ||
+    !world || paused || settingsOpen || world.winner !== null || shopOpen || scoreboardOpen ||
     !isPlayerHeroAlive(world) || aimingSkill !== null || !renderScene
   ) return;
 
@@ -247,26 +274,61 @@ function handleSimulationEvents(world: Simulation): void {
 }
 
 function onKeyDown(event: KeyboardEvent): void {
-  if (event.repeat || !session.world) return;
   const key = event.key.toLowerCase();
-  if (key === 'escape') {
-    clearPlayerInput();
-    paused = !paused;
-    hud.setPaused(paused);
+  if (key === 'tab') {
+    const world = session.world;
+    if (!world || settingsOpen) return;
+    event.preventDefault();
+    if (event.repeat || paused || world.winner !== null) return;
+    const nextScoreboard = handleScoreboardTabDown({ open: scoreboardOpen, pinned: scoreboardPinned, tabHeld });
+    tabHeld = nextScoreboard.tabHeld;
+    if (!scoreboardPinned) {
+      scoreboardOpen = nextScoreboard.open;
+      if (shopOpen) {
+        shopOpen = false;
+        hud.setShopOpen(false);
+      }
+      hud.setScoreboardOpen(scoreboardOpen, false);
+    }
     return;
   }
-  if (paused || session.world.winner !== null) return;
+  if (event.repeat) return;
+  if (key === 'escape' && settingsOpen) {
+    closeSettings();
+    return;
+  }
+  const world = session.world;
+  if (!world) return;
+  if (key === 'escape') {
+    if (aimingSkill !== null) {
+      clearAimingSkill();
+      pendingSkill = null;
+      return;
+    }
+    if (shopOpen) {
+      shopOpen = false;
+      hud.setShopOpen(false);
+      return;
+    }
+    if (scoreboardPinned) {
+      const nextScoreboard = cancelScoreboardPin({ open: scoreboardOpen, pinned: scoreboardPinned, tabHeld });
+      scoreboardPinned = nextScoreboard.pinned;
+      scoreboardOpen = nextScoreboard.open;
+      hud.setScoreboardOpen(false, false);
+      return;
+    }
+    openSettings('match');
+    return;
+  }
+  if (settingsOpen || paused || world.winner !== null) return;
   if (key === 'p') {
     shopOpen = !shopOpen;
-    if (shopOpen) scoreboardOpen = false;
+    if (shopOpen) {
+      scoreboardPinned = false;
+      scoreboardOpen = false;
+      hud.setScoreboardOpen(false, false);
+    }
     hud.setShopOpen(shopOpen);
-    return;
-  }
-  if (key === 'tab') {
-    event.preventDefault();
-    scoreboardOpen = !scoreboardOpen;
-    if (scoreboardOpen) shopOpen = false;
-    hud.setScoreboardOpen(scoreboardOpen);
     return;
   }
   if (key === 'm') {
@@ -290,7 +352,7 @@ function onKeyDown(event: KeyboardEvent): void {
     return;
   }
   if (['q', 'e', 'r'].includes(key)) {
-    if (!isPlayerHeroAlive(session.world)) {
+    if (!isPlayerHeroAlive(world)) {
       clearAimingSkill();
       return;
     }
@@ -310,12 +372,21 @@ function onKeyDown(event: KeyboardEvent): void {
 
 function onKeyUp(event: KeyboardEvent): void {
   const key = event.key.toLowerCase();
+  if (key === 'tab') {
+    if (session.world && !settingsOpen && !paused) event.preventDefault();
+    const nextScoreboard = handleScoreboardTabUp({ open: scoreboardOpen, pinned: scoreboardPinned, tabHeld });
+    tabHeld = nextScoreboard.tabHeld;
+    scoreboardOpen = nextScoreboard.open;
+    hud.setScoreboardOpen(scoreboardOpen, scoreboardPinned);
+    return;
+  }
   heldKeys.delete(key);
+  if (settingsOpen || paused || !session.world) return;
   if (!['q', 'e', 'r'].includes(key)) return;
   const skill = key.toUpperCase() as 'Q' | 'E' | 'R';
   if (aimingSkill !== skill) return;
   const world = session.world;
-  const canRelease = Boolean(world && !paused && world.winner === null && isPlayerHeroAlive(world));
+  const canRelease = Boolean(world && !paused && !settingsOpen && world.winner === null && isPlayerHeroAlive(world));
   clearAimingSkill();
   if (canRelease) pendingSkill = skill;
 }
@@ -372,12 +443,74 @@ function frame(now: number): void {
   animationFrame = window.requestAnimationFrame(frame);
 }
 
+function updateAudioSettings(values: AudioSettings): void {
+  settingsValues = parseAudioSettings(serializeAudioSettings(values));
+  audio.setVolumes(settingsValues.masterVolume / 100, settingsValues.sfxVolume / 100);
+  try {
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, serializeAudioSettings(settingsValues));
+  } catch {
+    // Private browsing or a storage policy may reject writes; live audio still updates.
+  }
+  hud.setSettingsValues(settingsValues);
+}
+
+function openSettings(mode: SettingsMode): void {
+  if (settingsOpen) return;
+  if (mode === 'match' && !session.world) return;
+  if (mode === 'menu' && session.world) return;
+  settingsOpen = true;
+  settingsMode = mode;
+  if (mode === 'match') {
+    paused = true;
+    shopOpen = false;
+    scoreboardOpen = false;
+    scoreboardPinned = false;
+    tabHeld = false;
+    clearPlayerInput();
+    hud.setShopOpen(false);
+    hud.setScoreboardOpen(false, false);
+    hud.setPaused(true);
+  }
+  hud.setSettingsValues(settingsValues);
+  hud.setSettingsOpen(true, mode);
+}
+
+function closeSettings(): void {
+  if (!settingsOpen) return;
+  const wasMatchSettings = settingsMode === 'match';
+  settingsOpen = false;
+  hud.setSettingsOpen(false, settingsMode);
+  if (wasMatchSettings) {
+    paused = false;
+    hud.setPaused(false);
+    accumulator = 0;
+    previousFrameTime = 0;
+  }
+}
+
+function toggleScoreboardPinned(): void {
+  const world = session.world;
+  if (!world || paused || settingsOpen || world.winner !== null) return;
+  const nextScoreboard = toggleScoreboardPin({ open: scoreboardOpen, pinned: scoreboardPinned, tabHeld });
+  scoreboardPinned = nextScoreboard.pinned;
+  scoreboardOpen = nextScoreboard.open;
+  if (scoreboardPinned) {
+    shopOpen = false;
+    hud.setShopOpen(false);
+  }
+  hud.setScoreboardOpen(scoreboardOpen, scoreboardPinned);
+}
+
 function startMatch(role: HeroRole): void {
   if (session.world) return;
   const world = session.enter(role, () => createSimulation(20261119, role));
   paused = false;
   shopOpen = false;
   scoreboardOpen = false;
+  scoreboardPinned = false;
+  tabHeld = false;
+  settingsOpen = false;
+  settingsMode = 'match';
   eventCursor = world.eventSequence;
   accumulator = 0;
   hudAccumulator = 0;
@@ -387,8 +520,9 @@ function startMatch(role: HeroRole): void {
   hud.setSelectedHero(role);
   hud.setActive(true);
   hud.setShopOpen(false);
-  hud.setScoreboardOpen(false);
+  hud.setScoreboardOpen(false, false);
   hud.setPaused(false);
+  hud.setSettingsOpen(false, 'match');
   hud.setHint('');
   hud.update(world);
 
@@ -415,11 +549,18 @@ function returnToMenu(): void {
   paused = false;
   shopOpen = false;
   scoreboardOpen = false;
+  scoreboardPinned = false;
+  tabHeld = false;
+  settingsOpen = false;
+  settingsMode = 'menu';
   eventCursor = 0;
   accumulator = 0;
   hudAccumulator = 0;
   previousFrameTime = 0;
   hud.setActive(false);
+  hud.setSettingsOpen(false, 'menu');
+  hud.setScoreboardOpen(false, false);
+  hud.setPaused(false);
   hud.setHint('');
   heroSelectScreen.hidden = false;
   setSelectedRole(null);
@@ -428,7 +569,6 @@ function returnToMenu(): void {
 enterMatchButton.addEventListener('click', () => {
   if (selectedRole) startMatch(selectedRole);
 });
-returnMenuButton.addEventListener('click', returnToMenu);
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('keyup', onKeyUp);
 window.addEventListener('blur', clearPlayerInput);
