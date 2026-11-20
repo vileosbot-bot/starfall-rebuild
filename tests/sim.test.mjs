@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AI_RULES,
+  ASSIST_WINDOW_TICKS,
   EQUIPMENT,
   FIXED_STEP_SECONDS,
   HERO_PURCHASE_ORDER,
@@ -761,7 +762,7 @@ test('every third wave adds siege minions and an inner-tower break adds a lane s
   assert.equal(superMinions[0].bountyExperience, 45);
 });
 
-test('minion last-hit keeps its bounty and shares a 35 percent pool with nearby allied heroes', () => {
+test('minion last-hit pays full bounty and each nearby ally an independent 35 percent share', () => {
   const world = createSimulation(20261120, 'vanguard');
   world.tick = FIRST_WAVE_TICK;
   stepSimulation(world, 1);
@@ -798,6 +799,8 @@ test('minion last-hit keeps its bounty and shares a 35 percent pool with nearby 
   assert.equal(ally.gold, 6);
   assert.equal(killer.experience, 17);
   assert.equal(ally.experience, 17);
+  assert.equal(killer.minionLastHits, 1);
+  assert.equal(ally.minionLastHits, 0);
   assert.equal(getLoggedGoldBalance(world, killer.id), killer.gold);
   assert.equal(getLoggedGoldBalance(world, ally.id), ally.gold);
   const minionTransactions = world.events.filter((event) =>
@@ -842,8 +845,8 @@ test('hero kill pays 80 percent of actual adjusted bounty to assists and shares 
   killer.cooldownRemaining = 0;
   victim.hp = 1;
   world.damageContributions[victim.id] = {
-    [assistantA.id]: 30,
-    [assistantB.id]: 20,
+    [assistantA.id]: { amount: 30, tick: world.tick },
+    [assistantB.id]: { amount: 20, tick: world.tick },
   };
 
   stepSimulation(world, 1, { attack: true });
@@ -1008,4 +1011,277 @@ test('30-minute sample bounds entities and event history and remains determinist
     entityCeiling,
     eventCeiling: MAX_EVENT_HISTORY,
   }));
+});
+
+
+function prepareStructureTargetWorld(stage) {
+  const world = createSimulation(20261120, 'vanguard');
+  const player = entity(world, 'blue-hero-vanguard');
+  const outer = entity(world, 'red-tower-1');
+  const inner = entity(world, 'red-tower-2');
+  const crystal = entity(world, 'red-crystal');
+  const keep = new Set([player.id, outer.id, inner.id, crystal.id]);
+  for (const unit of world.entities) {
+    if (keep.has(unit.id)) continue;
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
+  }
+  player.position = { x: 0, y: 0 };
+  player.attackRange = 2;
+  player.attackCooldownTicks = 1;
+  player.cooldownRemaining = 0;
+  player.attackDamage = 1000;
+  player.magicPower = 1000;
+  player.critChance = 0;
+  player.mana = 300;
+  player.skillCooldowns.Q = 0;
+  outer.position = { x: 1.8, y: 0 };
+  inner.position = { x: 0.5, y: 0 };
+  crystal.position = { x: 0.5, y: 0 };
+  for (const tower of [outer, inner]) {
+    tower.attackRange = 0;
+    tower.attackDamage = 0;
+    tower.attackCooldownTicks = 9999;
+    tower.cooldownRemaining = 9999;
+  }
+  outer.alive = stage === 'outer';
+  outer.hp = outer.alive ? outer.maxHp : 0;
+  inner.alive = stage !== 'crystal';
+  inner.hp = inner.alive ? inner.maxHp : 0;
+  crystal.alive = true;
+  crystal.hp = stage === 'crystal' ? 1 : crystal.maxHp;
+  return { world, outer, inner, crystal };
+}
+
+for (const action of ['space', 'Q']) {
+  for (const stage of ['outer', 'inner', 'crystal']) {
+    test('player ' + action + ' obeys ' + stage + ' structure priority', () => {
+      const { world, outer, inner, crystal } = prepareStructureTargetWorld(stage);
+      stepSimulation(world, 1, action === 'space' ? { attack: true } : { skill: 'Q' });
+      if (stage === 'outer') {
+        assert.ok(outer.hp < outer.maxHp);
+        assert.equal(inner.hp, inner.maxHp);
+        assert.equal(crystal.hp, crystal.maxHp);
+      } else if (stage === 'inner') {
+        assert.equal(outer.hp, 0);
+        assert.ok(inner.hp < inner.maxHp);
+        assert.equal(crystal.hp, crystal.maxHp);
+      } else {
+        assert.equal(outer.hp, 0);
+        assert.equal(inner.hp, 0);
+        assert.equal(crystal.alive, false);
+        assert.equal(world.winner, 'blue');
+        assert.equal(world.endReason, 'crystal-destroyed');
+        const terminalTick = world.tick;
+        stepSimulation(world, 100);
+        assert.equal(world.tick, terminalTick);
+      }
+    });
+  }
+}
+
+function prepareMinionBountyWorld(lastHitKind, recipientCount) {
+  const world = createSimulation(20261120, 'vanguard');
+  world.tick = FIRST_WAVE_TICK;
+  stepSimulation(world, 1);
+  const targetTeam = lastHitKind === 'hero' ? 'red' : 'blue';
+  const target = world.entities.find((unit) =>
+    unit.kind === 'minion' && unit.team === targetTeam && unit.minionType === 'melee' && unit.alive
+  );
+  assert.ok(target, 'expected a spawned melee minion target');
+  const recipientTeam = lastHitKind === 'hero' ? 'blue' : 'red';
+  const roles = ['vanguard', 'arcanist', 'ranger', 'duelist', 'guardian'];
+  const recipients = roles.slice(0, recipientCount).map((role) =>
+    entity(world, recipientTeam + '-hero-' + role)
+  );
+  const attacker = lastHitKind === 'hero'
+    ? recipients[0]
+    : lastHitKind === 'tower'
+      ? entity(world, 'red-tower-1')
+      : world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
+  assert.ok(attacker, 'expected a last-hit attacker');
+  const keep = new Set([...recipients.map((hero) => hero.id), target.id, attacker.id]);
+  for (const unit of world.entities) {
+    if (keep.has(unit.id)) continue;
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
+  }
+  target.position = { x: 0.5, y: 0 };
+  target.hp = 1;
+  target.attackRange = 0;
+  target.attackDamage = 0;
+  target.attackCooldownTicks = 9999;
+  target.cooldownRemaining = 9999;
+  target.moveSpeed = 0;
+  recipients.forEach((hero, index) => {
+    hero.position = { x: index * 1.2, y: 0 };
+    hero.gold = 0;
+    hero.experience = 0;
+    hero.minionLastHits = 0;
+    hero.moveSpeed = 0;
+    hero.attackRange = 0;
+    hero.attackDamage = 0;
+    hero.attackCooldownTicks = 9999;
+    hero.cooldownRemaining = 9999;
+    hero.aiState = 'heal';
+  });
+  if (lastHitKind === 'hero') {
+    attacker.position = { x: 0, y: 0 };
+    attacker.attackRange = 2;
+    attacker.attackDamage = 2000;
+    attacker.attackCooldownTicks = 1;
+    attacker.cooldownRemaining = 0;
+    attacker.critChance = 0;
+    attacker.moveSpeed = 0;
+  } else {
+    attacker.position = { x: 0.5, y: 0 };
+    attacker.attackRange = 2;
+    attacker.attackDamage = 2000;
+    attacker.attackCooldownTicks = 1;
+    attacker.cooldownRemaining = 0;
+    attacker.moveSpeed = 0;
+    if (attacker.kind === 'minion') attacker.aggroRange = 5;
+  }
+  return { world, target, attacker, recipients };
+}
+
+for (let recipientCount = 1; recipientCount <= 5; recipientCount += 1) {
+  test('hero minion last-hit pays full bounty and per-hero shares to ' + recipientCount + ' nearby heroes', () => {
+    const { world, target, attacker, recipients } = prepareMinionBountyWorld('hero', recipientCount);
+    assert.equal(target.bountyGold, 18);
+    assert.equal(target.bountyExperience, 24);
+    stepSimulation(world, 1, { attack: true });
+    assert.equal(target.alive, false);
+    const experienceEach = Math.round(24 * getExperienceShareFactor(recipientCount));
+    recipients.forEach((hero, index) => {
+      assert.equal(hero.gold, index === 0 ? 18 : 6);
+      assert.equal(hero.experience, experienceEach);
+      assert.equal(hero.minionLastHits, index === 0 ? 1 : 0);
+      assert.equal(getLoggedGoldBalance(world, hero.id), hero.gold);
+    });
+    const transactions = world.events.filter((event) =>
+      event.type === 'gold-transaction' && event.targetId === target.id &&
+      (event.incomeSource === 'minion-last-hit' || event.incomeSource === 'minion-share')
+    );
+    assert.equal(transactions.length, recipientCount);
+    assert.ok(transactions.some((event) =>
+      event.recipientId === attacker.id && event.incomeSource === 'minion-last-hit' && event.amount === 18
+    ));
+    assert.equal(transactions.filter((event) => event.incomeSource === 'minion-share').length, recipientCount - 1);
+  });
+  for (const killerKind of ['minion', 'tower']) {
+    test(killerKind + ' minion last-hit pays each of ' + recipientCount + ' nearby heroes an independent share', () => {
+      const { world, target, recipients } = prepareMinionBountyWorld(killerKind, recipientCount);
+      assert.equal(target.bountyGold, 18);
+      assert.equal(target.bountyExperience, 24);
+      stepSimulation(world, 1);
+      assert.equal(target.alive, false);
+      const experienceEach = Math.round(24 * getExperienceShareFactor(recipientCount));
+      recipients.forEach((hero) => {
+        assert.equal(hero.gold, 6);
+        assert.equal(hero.experience, experienceEach);
+        assert.equal(hero.minionLastHits, 0);
+        assert.equal(getLoggedGoldBalance(world, hero.id), hero.gold);
+      });
+      const transactions = world.events.filter((event) =>
+        event.type === 'gold-transaction' && event.targetId === target.id && event.incomeSource === 'minion-share'
+      );
+      assert.equal(transactions.length, recipientCount);
+      assert.ok(transactions.every((event) => event.amount === 6));
+    });
+  }
+}
+
+test('hero damage contributions store the tick of the most recent hit', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  world.tick = 400;
+  const attacker = entity(world, 'blue-hero-vanguard');
+  const victim = entity(world, 'red-hero-vanguard');
+  const keep = new Set([attacker.id, victim.id]);
+  for (const unit of world.entities) {
+    if (keep.has(unit.id)) continue;
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
+  }
+  attacker.position = { x: 0, y: 0 };
+  victim.position = { x: 1, y: 0 };
+  attacker.attackRange = 2;
+  attacker.attackDamage = 50;
+  attacker.attackCooldownTicks = 1;
+  attacker.cooldownRemaining = 0;
+  attacker.critChance = 0;
+  victim.hp = victim.maxHp;
+  victim.attackRange = 0;
+  victim.attackCooldownTicks = 9999;
+  victim.cooldownRemaining = 9999;
+  stepSimulation(world, 1, { attack: true });
+  const contribution = world.damageContributions[victim.id]?.[attacker.id];
+  assert.ok(contribution);
+  assert.equal(contribution.tick, 400);
+  assert.ok(contribution.amount > 0);
+});
+
+test('hero assists include damage at 10 seconds and exclude damage older than 10 seconds', () => {
+  assert.equal(ASSIST_WINDOW_TICKS, 200);
+  const world = createSimulation(20261120, 'vanguard');
+  world.tick = 400;
+  const killer = entity(world, 'blue-hero-vanguard');
+  const victim = entity(world, 'red-hero-vanguard');
+  const assistantIn = entity(world, 'blue-hero-arcanist');
+  const assistantOut = entity(world, 'blue-hero-ranger');
+  const keep = new Set([killer.id, victim.id, assistantIn.id, assistantOut.id]);
+  for (const unit of world.entities) {
+    if (keep.has(unit.id)) continue;
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
+  }
+  killer.position = { x: 0, y: 0 };
+  victim.position = { x: 1, y: 0 };
+  assistantIn.position = { x: 8, y: 0 };
+  assistantOut.position = { x: 10, y: 0 };
+  killer.gold = 0;
+  assistantIn.gold = 0;
+  assistantOut.gold = 0;
+  killer.killStreak = 2;
+  victim.deathStreak = 1;
+  killer.attackRange = 2;
+  killer.attackDamage = 2000;
+  killer.attackCooldownTicks = 1;
+  killer.cooldownRemaining = 0;
+  killer.critChance = 0;
+  killer.moveSpeed = 0;
+  victim.hp = 1;
+  victim.attackRange = 0;
+  victim.attackDamage = 0;
+  victim.attackCooldownTicks = 9999;
+  victim.cooldownRemaining = 9999;
+  victim.moveSpeed = 0;
+  for (const assistant of [assistantIn, assistantOut]) {
+    assistant.attackRange = 0;
+    assistant.attackDamage = 0;
+    assistant.attackCooldownTicks = 9999;
+    assistant.cooldownRemaining = 9999;
+    assistant.moveSpeed = 0;
+    assistant.aiState = 'heal';
+  }
+  world.damageContributions[victim.id] = {
+    [assistantIn.id]: { amount: 30, tick: world.tick - ASSIST_WINDOW_TICKS },
+    [assistantOut.id]: { amount: 20, tick: world.tick - ASSIST_WINDOW_TICKS - 1 },
+  };
+  stepSimulation(world, 1, { attack: true });
+  assert.equal(victim.alive, false);
+  assert.equal(assistantIn.assists, 1);
+  assert.equal(assistantOut.assists, 0);
+  assert.equal(assistantIn.gold, 128);
+  assert.equal(assistantOut.gold, 0);
+  assert.ok(world.events.some((event) =>
+    event.incomeSource === 'hero-assist' && event.recipientId === assistantIn.id && event.amount === 128
+  ));
+  assert.ok(!world.events.some((event) =>
+    event.incomeSource === 'hero-assist' && event.recipientId === assistantOut.id
+  ));
 });

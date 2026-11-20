@@ -1,5 +1,6 @@
 export const FIXED_STEP_SECONDS = 0.05;
 export const TICKS_PER_SECOND = 20;
+export const ASSIST_WINDOW_TICKS = TICKS_PER_SECOND * 10;
 export const FIRST_WAVE_TICK = 200;
 export const PASSIVE_GOLD_START_TICK = 200;
 export const WAVE_INTERVAL_TICKS = 600;
@@ -91,6 +92,7 @@ export interface SimEntity {
   killStreak?: number;
   deathStreak?: number;
   assists: number;
+  minionLastHits?: number;
   inventory: EquipmentId[];
   alive: boolean;
   respawnTicks: number;
@@ -131,6 +133,11 @@ export interface PendingMinionSpawn {
   spawnTick: number;
 }
 
+export interface DamageContribution {
+  amount: number;
+  tick: number;
+}
+
 export interface Simulation {
   seed: number;
   rngState: number;
@@ -144,7 +151,7 @@ export interface Simulation {
   eventSequence: number;
   playerHeroId: string | null;
   firstBloodAwarded: boolean;
-  damageContributions: Record<string, Record<string, number>>;
+  damageContributions: Record<string, Record<string, DamageContribution>>;
   pendingMinionSpawns: PendingMinionSpawn[];
 }
 
@@ -368,6 +375,7 @@ function createHero(team: Team, template: HeroTemplate, index: number): SimEntit
     killStreak: 0,
     deathStreak: 0,
     assists: 0,
+    minionLastHits: 0,
     inventory: [],
     alive: true,
     respawnTicks: 0,
@@ -833,29 +841,33 @@ function nearbyTeamHeroes(
   world: Simulation,
   team: Team,
   origin: Position,
-  alwaysIncludeId: string,
+  alwaysIncludeId?: string,
 ): SimEntity[] {
   const heroes = world.entities.filter((entity) =>
     entity.kind === 'hero' && entity.team === team && entity.alive &&
     distance(entity.position, origin) <= 12
   );
-  const required = world.entities.find((entity) =>
+  const required = alwaysIncludeId ? world.entities.find((entity) =>
     entity.id === alwaysIncludeId && entity.kind === 'hero' && entity.team === team && entity.alive
-  );
+  ) : undefined;
   if (required && !heroes.some((hero) => hero.id === required.id)) heroes.push(required);
   return heroes.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
 function awardMinionBounty(world: Simulation, attacker: SimEntity, target: SimEntity): void {
-  const recipients = nearbyTeamHeroes(world, attacker.team as Team, target.position, attacker.id);
-  const shareRecipients = recipients.filter((hero) => hero.id !== attacker.id);
-  const sharePool = Math.floor(target.bountyGold * 0.35);
-  const shareAmounts = splitIntegerPool(sharePool, shareRecipients);
+  const recipients = nearbyTeamHeroes(
+    world,
+    attacker.team as Team,
+    target.position,
+    attacker.kind === 'hero' ? attacker.id : undefined,
+  );
+  const shareGold = Math.round(target.bountyGold * 0.35);
   const experienceEach = Math.round(target.bountyExperience * getExperienceShareFactor(recipients.length));
   for (const recipient of recipients) {
-    const isLastHitter = recipient.id === attacker.id;
-    const gold = isLastHitter ? target.bountyGold : (shareAmounts.get(recipient.id) ?? 0);
+    const isLastHitter = attacker.kind === 'hero' && recipient.id === attacker.id;
+    const gold = isLastHitter ? target.bountyGold : shareGold;
     const experience = experienceEach;
+    if (isLastHitter) recipient.minionLastHits = (recipient.minionLastHits ?? 0) + 1;
     if (gold > 0 || experience > 0) {
       recordWalletTransaction(
         world,
@@ -896,7 +908,11 @@ function awardHeroKill(world: Simulation, attacker: SimEntity, victim: SimEntity
 
   const contributions = world.damageContributions[victim.id] ?? {};
   const assistants = Object.keys(contributions)
-    .filter((id) => id !== attacker.id && contributions[id] > 0)
+    .filter((id) => {
+      const contribution = contributions[id];
+      const age = world.tick - contribution.tick;
+      return id !== attacker.id && contribution.amount > 0 && age >= 0 && age <= ASSIST_WINDOW_TICKS;
+    })
     .map((id) => world.entities.find((entity) =>
       entity.id === id && entity.kind === 'hero' && entity.team === attacker.team
     ))
@@ -986,7 +1002,7 @@ function killEntity(world: Simulation, attacker: SimEntity, target: SimEntity): 
   }
 
   if (attacker.team !== target.team) {
-    if (attacker.kind === 'hero' && target.kind === 'minion') {
+    if (target.kind === 'minion' && attacker.team !== 'neutral') {
       awardMinionBounty(world, attacker, target);
     } else if (attacker.kind === 'hero' && target.kind === 'monster') {
       recordWalletTransaction(
@@ -1020,7 +1036,8 @@ function killEntity(world: Simulation, attacker: SimEntity, target: SimEntity): 
 function recordHeroDamage(world: Simulation, attacker: SimEntity, target: SimEntity, amount: number): void {
   if (attacker.kind !== 'hero' || target.kind !== 'hero' || attacker.team === target.team || amount <= 0) return;
   const contributions = world.damageContributions[target.id] ?? (world.damageContributions[target.id] = {});
-  contributions[attacker.id] = (contributions[attacker.id] ?? 0) + amount;
+  const previous = contributions[attacker.id];
+  contributions[attacker.id] = { amount: (previous?.amount ?? 0) + amount, tick: world.tick };
 }
 
 function performAttack(world: Simulation, attacker: SimEntity, target: SimEntity): void {
@@ -1234,7 +1251,12 @@ function updateActor(world: Simulation, actor: SimEntity): void {
 }
 
 function playerEnemyTargets(world: Simulation, hero: SimEntity): SimEntity[] {
-  return world.entities.filter((entity) => entity.alive && entity.team !== hero.team && entity.kind !== 'crystal');
+  const structure = findStructureTarget(world, hero);
+  return world.entities.filter((entity) => {
+    if (!entity.alive || entity.team === hero.team) return false;
+    if (entity.kind === 'tower' || entity.kind === 'crystal') return entity.id === structure?.id;
+    return true;
+  });
 }
 
 function applyPlayerSkillDamage(world: Simulation, hero: SimEntity, target: SimEntity, multiplier: number): number {

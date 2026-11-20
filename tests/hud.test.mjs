@@ -14,6 +14,7 @@ import {
   getSkillHudState,
   getChannelHudState,
   getMinimapMarkers,
+  getScoreboardCombatStats,
 } from '../src/hud.ts';
 
 test('game time formats zero, ten seconds, one minute, and ten minutes from fixed simulation ticks', () => {
@@ -174,4 +175,24 @@ test('HUD contains a non-interactive minimap separated from the top bar and skil
   assert.ok(render.includes('for (const laneZ of [-8, 0, 8])'));
   assert.ok(render.includes('riverGeometry'));
   assert.ok(render.includes('grassGeometry'));
+});
+
+
+test('scoreboard shows assists and minion last-hits in the existing K/D columns', async () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const hero = world.entities.find((unit) => unit.id === 'blue-hero-vanguard');
+  assert.ok(hero);
+  hero.kills = 3;
+  hero.deaths = 2;
+  hero.assists = 4;
+  hero.minionLastHits = 7;
+  assert.deepEqual(getScoreboardCombatStats(hero), {
+    killsAndAssists: '3/4',
+    deathsAndLastHits: '2/7',
+  });
+  const source = await readFile(new URL('../src/hud.ts', import.meta.url), 'utf8');
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(source, /<span>K\/A<\/span>/);
+  assert.match(source, /<span>D\/CS<\/span>/);
+  assert.match(html, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*34px\s*34px\s*58px/);
 });

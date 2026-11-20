@@ -217,6 +217,20 @@ export function getChannelHudState(hero: Pick<SimEntity, 'channel'>): ChannelHud
   };
 }
 
+export interface ScoreboardCombatStats {
+  killsAndAssists: string;
+  deathsAndLastHits: string;
+}
+
+export function getScoreboardCombatStats(
+  hero: Pick<SimEntity, 'kills' | 'deaths' | 'assists' | 'minionLastHits'>,
+): ScoreboardCombatStats {
+  return {
+    killsAndAssists: hero.kills + '/' + hero.assists,
+    deathsAndLastHits: hero.deaths + '/' + (hero.minionLastHits ?? 0),
+  };
+}
+
 function equipmentStats(item: EquipmentDefinition): string {
   const stats: string[] = [];
   if (item.attackDamage) stats.push(`物攻 +${item.attackDamage}`);
@@ -284,8 +298,8 @@ function drawAvatar(canvas: HTMLCanvasElement, role: HeroRole): void {
 
 interface ScoreRowRefs {
   row: HTMLDivElement;
-  kills: HTMLSpanElement;
-  deaths: HTMLSpanElement;
+  killsAssists: HTMLSpanElement;
+  deathsLastHits: HTMLSpanElement;
   gold: HTMLSpanElement;
 }
 
@@ -293,19 +307,19 @@ function buildScoreRows(container: HTMLElement): Map<HeroRole, ScoreRowRefs> {
   const rows = new Map<HeroRole, ScoreRowRefs>();
   const heading = document.createElement('div');
   heading.className = 'score-row score-head';
-  heading.innerHTML = '<span>英雄</span><span>K</span><span>D</span><span>金币</span>';
+  heading.innerHTML = '<span>英雄</span><span>K/A</span><span>D/CS</span><span>金币</span>';
   container.append(heading);
   for (const role of HERO_ROLES) {
     const row = document.createElement('div');
     row.className = 'score-row';
     const name = document.createElement('span');
     name.textContent = HERO_LABELS[role];
-    const kills = document.createElement('span');
-    const deaths = document.createElement('span');
+    const killsAssists = document.createElement('span');
+    const deathsLastHits = document.createElement('span');
     const gold = document.createElement('span');
-    row.append(name, kills, deaths, gold);
+    row.append(name, killsAssists, deathsLastHits, gold);
     container.append(row);
-    rows.set(role, { row, kills, deaths, gold });
+    rows.set(role, { row, killsAssists, deathsLastHits, gold });
   }
   return rows;
 }
@@ -444,8 +458,9 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
         const hero = world.entities.find((entity) => entity.kind === 'hero' && entity.team === team && entity.role === role);
         const refs = scoreRows[team].get(role);
         if (!hero || !refs) continue;
-        refs.kills.textContent = String(hero.kills);
-        refs.deaths.textContent = String(hero.deaths);
+        const combatStats = getScoreboardCombatStats(hero);
+        refs.killsAssists.textContent = combatStats.killsAndAssists;
+        refs.deathsLastHits.textContent = combatStats.deathsAndLastHits;
         refs.gold.textContent = formatGold(getLoggedGoldBalance(world, hero.id));
         refs.row.classList.toggle('is-selected', team === 'blue' && role === selectedHeroRole);
       }
