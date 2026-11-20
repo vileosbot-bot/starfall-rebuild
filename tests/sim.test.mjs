@@ -42,7 +42,7 @@ test('same seed and fixed steps produce identical world state', () => {
   assert.deepEqual(left, right);
   assert.equal(initial.entities.filter((item) => item.kind === 'hero').length, 10);
   assert.equal(initial.entities.filter((item) => item.kind === 'monster').length, 2);
-  assert.equal(initial.entities.filter((item) => item.kind === 'tower').length, 4);
+  assert.equal(initial.entities.filter((item) => item.kind === 'tower').length, 12);
   assert.equal(initial.entities.filter((item) => item.kind === 'crystal').length, 2);
   for (const role of ['vanguard', 'ranger', 'arcanist', 'duelist', 'guardian']) {
     const blue = entity(initial, 'blue-hero-' + role);
@@ -100,7 +100,7 @@ test('hero kills grant calibrated gold, first blood, and level-scaled shared exp
   assert.equal(getLoggedGoldBalance(world, killer.id), killer.gold);
 });
 
-test('minion waves start at tick 200, recur every 600 ticks, and stagger the local lane roster', () => {
+test('three-lane minion waves start at tick 200, recur every 600 ticks, and stagger each lane roster', () => {
   const world = createSimulation(11);
   assert.equal(FIRST_WAVE_TICK, 200);
   assert.equal(WAVE_INTERVAL_TICKS, 600);
@@ -113,22 +113,25 @@ test('minion waves start at tick 200, recur every 600 ticks, and stagger the loc
   assert.equal(world.tick, 200);
   assert.equal(world.waveCount, 0);
   assert.equal(world.entities.filter((item) => item.kind === 'minion').length, 0);
-
   stepSimulation(world, 1);
   assert.equal(world.waveCount, 1);
-  assert.equal(world.entities.filter((item) => item.kind === 'minion').length, 2);
-  assert.ok(world.events.some((event) => event.type === 'wave-spawned' && event.tick === 200));
-
+  assert.equal(world.entities.filter((item) => item.kind === 'minion').length, 6);
+  const waveEvents = world.events.filter((event) => event.type === 'wave-spawned' && event.tick === 200);
+  assert.equal(waveEvents.length, 2);
+  assert.ok(waveEvents.every((event) => event.amount === 9));
+  assert.ok(waveEvents.every((event) => event.detail.includes('lanes=top,mid,bottom')));
   stepSimulation(world, 24);
   const firstWave = world.entities.filter((item) => item.kind === 'minion');
-  assert.equal(firstWave.length, 6);
-  assert.equal(firstWave.filter((item) => item.minionType === 'melee').length, 4);
-  assert.equal(firstWave.filter((item) => item.minionType === 'ranged').length, 2);
+  assert.equal(firstWave.length, 18);
+  for (const team of ['blue', 'red']) for (const lane of ['top', 'mid', 'bottom']) {
+    const roster = firstWave.filter((item) => item.team === team && item.lane === lane);
+    assert.equal(roster.filter((item) => item.minionType === 'melee').length, 2);
+    assert.equal(roster.filter((item) => item.minionType === 'ranged').length, 1);
+  }
   const blueSpawnTicks = world.events
     .filter((event) => event.type === 'minion-spawned' && event.team === 'blue' && event.targetId?.includes('-minion-1-'))
     .map((event) => event.tick);
-  assert.deepEqual(blueSpawnTicks, [200, 212, 224]);
-
+  assert.deepEqual(blueSpawnTicks, [200, 200, 200, 212, 212, 212, 224, 224, 224]);
   stepSimulation(world, 575);
   assert.equal(world.tick, 800);
   assert.equal(world.waveCount, 1);
@@ -197,11 +200,11 @@ test('towers automatically attack enemy minions inside their range', () => {
   const world = createSimulation(23);
   world.tick = FIRST_WAVE_TICK;
   stepSimulation(world, 1);
-  const tower = entity(world, 'blue-tower-2');
+  const tower = entity(world, 'blue-tower-mid-2');
   const target = world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
   assert.ok(target);
   tower.position = { x: 0, y: 0 };
-  entity(world, 'blue-tower-1').position = { x: -30, y: 0 };
+  entity(world, 'blue-tower-mid-1').position = { x: -30, y: 0 };
   tower.attackRange = 6;
   tower.cooldownRemaining = 0;
   target.position = { x: 1, y: 0 };
@@ -216,8 +219,8 @@ test('outer tower is nearer the lane center and is selected before the inner tow
   const world = createSimulation(24);
   world.tick = FIRST_WAVE_TICK;
   stepSimulation(world, 1);
-  const outer = entity(world, 'red-tower-1');
-  const inner = entity(world, 'red-tower-2');
+  const outer = entity(world, 'red-tower-mid-1');
+  const inner = entity(world, 'red-tower-mid-2');
   assert.equal(outer.position.x, 4);
   assert.equal(inner.position.x, 8);
   assert.ok(Math.abs(outer.position.x) < Math.abs(inner.position.x));
@@ -417,7 +420,7 @@ test('passive gold starts at tick 200, uses cumulative rounding, and is paid dur
 test('hero does not attack a tower without a friendly minion tanking inside tower range', () => {
   const world = createSimulation(47);
   const hero = entity(world, 'blue-hero-ranger');
-  const tower = entity(world, 'red-tower-1');
+  const tower = entity(world, 'red-tower-mid-1');
   hero.position = { x: 2, y: 0 };
   hero.attackRange = 5;
   for (const unit of world.entities) {
@@ -432,7 +435,7 @@ test('hero attacks a tower only while a friendly minion is inside its range', ()
   const world = createSimulation(53);
   world.tick = FIRST_WAVE_TICK;
   const hero = entity(world, 'blue-hero-ranger');
-  const tower = entity(world, 'red-tower-1');
+  const tower = entity(world, 'red-tower-mid-1');
   hero.position = { x: 2, y: 0 };
   hero.attackRange = 5;
   for (const unit of world.entities) {
@@ -864,30 +867,46 @@ test('hero bounty formula locks base, streak adjustment, death adjustment, clamp
   assert.equal(calculateHeroKillExperience(2, 3), 71);
 });
 
-test('every third wave adds siege minions and an inner-tower break adds a lane super minion', () => {
+test('every third wave adds siege minions per lane and an inner-tower break adds a super minion only on that lane', () => {
   const siegeWorld = createSimulation(31);
   siegeWorld.tick = FIRST_WAVE_TICK + WAVE_INTERVAL_TICKS * 2;
   siegeWorld.waveCount = 2;
-  stepSimulation(siegeWorld, 37);
+  for (const hero of siegeWorld.entities.filter((unit) => unit.kind === 'hero')) { hero.alive = false; hero.hp = 0; hero.respawnTicks = 0; }
+  for (const tower of siegeWorld.entities.filter((unit) => unit.kind === 'tower')) tower.attackRange = 0;
+  for (let tick = 0; tick < 50; tick += 1) {
+    stepSimulation(siegeWorld, 1);
+    for (const minion of siegeWorld.entities.filter((unit) => unit.kind === 'minion')) {
+      minion.attackRange = 0; minion.attackDamage = 0; minion.moveSpeed = 0;
+    }
+  }
   const siegeMinions = siegeWorld.entities.filter((unit) => unit.kind === 'minion' && unit.minionType === 'siege');
   assert.equal(siegeWorld.waveCount, 3);
-  assert.equal(siegeMinions.length, 2);
-  assert.ok(siegeMinions.every((unit) => unit.maxHp === 420 && unit.attackDamage === 34 &&
-    unit.bountyGold === 42 && unit.bountyExperience === 40));
+  assert.equal(siegeMinions.length, 6);
+  for (const lane of ['top', 'mid', 'bottom']) assert.equal(siegeMinions.filter((unit) => unit.lane === lane).length, 2);
+  assert.ok(siegeMinions.every((unit) => unit.maxHp === 420 && unit.attackDamage === 34 && unit.bountyGold === 42 && unit.bountyExperience === 40));
+  assert.ok(siegeWorld.events.filter((event) => event.type === 'wave-spawned').every((event) => event.amount === 12));
 
   const superWorld = createSimulation(32);
-  const redInnerTower = entity(superWorld, 'red-tower-2');
-  redInnerTower.alive = false;
-  redInnerTower.hp = 0;
+  const redTopInnerTower = entity(superWorld, 'red-tower-top-2');
+  redTopInnerTower.alive = false; redTopInnerTower.hp = 0;
+  for (const hero of superWorld.entities.filter((unit) => unit.kind === 'hero')) { hero.alive = false; hero.hp = 0; hero.respawnTicks = 0; }
+  for (const tower of superWorld.entities.filter((unit) => unit.kind === 'tower')) tower.attackRange = 0;
   superWorld.tick = FIRST_WAVE_TICK;
-  stepSimulation(superWorld, 37);
+  for (let tick = 0; tick < 50; tick += 1) {
+    stepSimulation(superWorld, 1);
+    for (const minion of superWorld.entities.filter((unit) => unit.kind === 'minion')) {
+      minion.attackRange = 0; minion.attackDamage = 0; minion.moveSpeed = 0;
+    }
+  }
   const superMinions = superWorld.entities.filter((unit) => unit.kind === 'minion' && unit.minionType === 'super');
   assert.equal(superMinions.length, 1);
   assert.equal(superMinions[0].team, 'blue');
+  assert.equal(superMinions[0].lane, 'top');
   assert.equal(superMinions[0].maxHp, 945);
   assert.equal(superMinions[0].attackDamage, 46);
   assert.equal(superMinions[0].bountyGold, 47);
   assert.equal(superMinions[0].bountyExperience, 45);
+  assert.ok(superWorld.events.some((event) => event.type === 'wave-spawned' && event.team === 'blue' && event.amount === 10));
 });
 
 test('minion last-hit pays full bounty and each nearby ally an independent 35 percent share', () => {
@@ -1009,7 +1028,7 @@ test('hero kill pays 80 percent of actual adjusted bounty to assists and shares 
 test('tower destruction pays every teammate by layer, a 40 gold hero last-hit bonus, and 100 shared experience', () => {
   const world = createSimulation(20261120, 'vanguard');
   const attacker = entity(world, 'blue-hero-vanguard');
-  const tower = entity(world, 'red-tower-1');
+  const tower = entity(world, 'red-tower-mid-1');
   for (const unit of world.entities) {
     if (unit.kind === 'hero' && unit.team === 'blue' && unit.id !== attacker.id) {
       unit.position = { x: -40, y: 40 };
@@ -1070,7 +1089,7 @@ test('dead minions are reclaimed after the grace period while permanent units re
   stepSimulation(world, 1);
   assert.equal(target.alive, false);
   assert.equal(target.deathTick, world.tick - 1);
-  const permanentIds = [attacker.id, 'blue-tower-1', 'blue-crystal', 'neutral-sentinel'];
+  const permanentIds = [attacker.id, 'blue-tower-mid-1', 'blue-crystal', 'neutral-sentinel'];
   stepSimulation(world, MINION_CORPSE_GRACE_TICKS - 2);
   assert.ok(world.entities.some((unit) => unit.id === target.id), 'corpse remains during the grace period');
   stepSimulation(world, 1);
@@ -1145,8 +1164,8 @@ test('30-minute sample bounds entities and event history and remains determinist
 function prepareStructureTargetWorld(stage) {
   const world = createSimulation(20261120, 'vanguard');
   const player = entity(world, 'blue-hero-vanguard');
-  const outer = entity(world, 'red-tower-1');
-  const inner = entity(world, 'red-tower-2');
+  const outer = entity(world, 'red-tower-mid-1');
+  const inner = entity(world, 'red-tower-mid-2');
   const crystal = entity(world, 'red-crystal');
   const keep = new Set([player.id, outer.id, inner.id, crystal.id]);
   for (const unit of world.entities) {
@@ -1226,7 +1245,7 @@ function prepareMinionBountyWorld(lastHitKind, recipientCount) {
   const attacker = lastHitKind === 'hero'
     ? recipients[0]
     : lastHitKind === 'tower'
-      ? entity(world, 'red-tower-1')
+      ? entity(world, 'red-tower-mid-1')
       : world.entities.find((unit) => unit.kind === 'minion' && unit.team === 'red' && unit.alive);
   assert.ok(attacker, 'expected a last-hit attacker');
   const keep = new Set([...recipients.map((hero) => hero.id), target.id, attacker.id]);
@@ -1535,4 +1554,139 @@ test('specified attack target respects outer-tower, inner-tower, and crystal unl
   stepSimulation(crystalExposed.world, 1, { attackTargetId: crystalExposed.crystal.id });
   assert.equal(crystalExposed.crystal.alive, false, 'crystal becomes targetable after both towers fall');
   assert.equal(crystalExposed.world.winner, 'blue');
+});
+
+
+test('three-lane tower roster and AI heroes occupy top, mid, and bottom lanes', () => {
+  const world = createSimulation(20261120);
+  const towers = world.entities.filter((unit) => unit.kind === 'tower');
+  assert.equal(towers.length, 12);
+  for (const [lane, y] of [['top', -8], ['mid', 0], ['bottom', 8]]) {
+    const laneTowers = towers.filter((tower) => tower.lane === lane);
+    assert.equal(laneTowers.length, 4);
+    assert.deepEqual(laneTowers.map((tower) => tower.hp), [1050, 1050, 1050, 1050]);
+    assert.ok(laneTowers.every((tower) => tower.position.y === y));
+    assert.ok(laneTowers.some((tower) => tower.team === 'blue' && tower.towerIndex === 1 && tower.position.x === -4));
+    assert.ok(laneTowers.some((tower) => tower.team === 'blue' && tower.towerIndex === 2 && tower.position.x === -8));
+    assert.ok(laneTowers.some((tower) => tower.team === 'red' && tower.towerIndex === 1 && tower.position.x === 4));
+    assert.ok(laneTowers.some((tower) => tower.team === 'red' && tower.towerIndex === 2 && tower.position.x === 8));
+  }
+  stepSimulation(world, 120);
+  for (const lane of ['top', 'mid', 'bottom']) {
+    assert.ok(world.entities.some((hero) => hero.kind === 'hero' && hero.team === 'blue' && hero.alive && hero.lane === lane));
+    assert.ok(world.entities.some((hero) => hero.kind === 'hero' && hero.team === 'red' && hero.alive && hero.lane === lane));
+  }
+});
+
+test('minions advance within their own lane band instead of drifting toward another lane', () => {
+  const world = createSimulation(89);
+  world.tick = FIRST_WAVE_TICK;
+  stepSimulation(world, 1);
+  const minion = entity(world, 'blue-minion-1-top-melee-0');
+  const tower = entity(world, 'red-tower-top-1');
+  for (const unit of world.entities) {
+    if (unit.id === minion.id || unit.id === tower.id) continue;
+    unit.alive = false; unit.hp = 0; unit.respawnTicks = 0;
+  }
+  world.pendingMinionSpawns = [];
+  tower.position = { x: 4, y: -8 };
+  tower.attackRange = 0;
+  minion.position = { x: -10.2, y: -8 };
+  minion.moveSpeed = 1.75;
+  stepSimulation(world, 60);
+  assert.ok(minion.position.x > -10.2);
+  assert.ok(minion.position.y >= -9.2 && minion.position.y <= -6.8);
+  assert.equal(minion.lane, 'top');
+  assert.ok(!world.events.some((event) => event.type === 'attack' && event.sourceId === minion.id && event.targetId?.includes('-tower-mid-')));
+});
+
+function prepareTopLaneStructureWorld(stage) {
+  const world = createSimulation(20261120, 'vanguard');
+  const player = entity(world, 'blue-hero-vanguard');
+  const outer = entity(world, 'red-tower-top-1');
+  const inner = entity(world, 'red-tower-top-2');
+  const crystal = entity(world, 'red-crystal');
+  player.position = { x: 0, y: -8 };
+  player.lane = 'top';
+  player.attackRange = 2;
+  player.attackDamage = 2000;
+  player.critChance = 0;
+  player.cooldownRemaining = 0;
+  crystal.position = { x: 0.5, y: -8 };
+  crystal.hp = stage === 'crystal' ? 1 : crystal.maxHp;
+  for (const unit of world.entities) {
+    if (unit.id === player.id || unit.id === crystal.id || (unit.kind === 'tower' && unit.team === 'red')) continue;
+    unit.alive = false; unit.hp = 0; unit.respawnTicks = 0;
+  }
+  for (const tower of world.entities.filter((unit) => unit.kind === 'tower' && unit.team === 'red')) {
+    tower.attackRange = 0; tower.attackDamage = 0; tower.attackCooldownTicks = 9999; tower.cooldownRemaining = 9999;
+  }
+  outer.position = { x: 1.8, y: -8 };
+  inner.position = { x: 0.5, y: -8 };
+  outer.alive = stage === 'outer'; outer.hp = outer.alive ? outer.maxHp : 0;
+  inner.alive = stage !== 'crystal'; inner.hp = inner.alive ? inner.maxHp : 0;
+  return { world, outer, inner, crystal };
+}
+
+test('player space and Q obey lane-local tower priority and any destroyed inner tower unlocks the crystal', () => {
+  for (const action of ['space', 'Q']) {
+    const command = action === 'space' ? { attack: true } : { skill: 'Q' };
+    const outerStage = prepareTopLaneStructureWorld('outer');
+    stepSimulation(outerStage.world, 1, command);
+    assert.ok(outerStage.outer.hp < outerStage.outer.maxHp);
+    assert.equal(outerStage.inner.hp, outerStage.inner.maxHp);
+    assert.equal(outerStage.crystal.hp, outerStage.crystal.maxHp);
+    const innerStage = prepareTopLaneStructureWorld('inner');
+    stepSimulation(innerStage.world, 1, command);
+    assert.equal(innerStage.outer.hp, 0);
+    assert.ok(innerStage.inner.hp < innerStage.inner.maxHp);
+    assert.equal(innerStage.crystal.hp, innerStage.crystal.maxHp);
+    const crystalStage = prepareTopLaneStructureWorld('crystal');
+    stepSimulation(crystalStage.world, 1, command);
+    assert.equal(crystalStage.outer.hp, 0);
+    assert.equal(crystalStage.inner.hp, 0);
+    assert.equal(crystalStage.crystal.alive, false);
+    assert.equal(crystalStage.world.winner, 'blue');
+  }
+});
+
+test('AI heroes and minions attack only the next structure on their own lane', () => {
+  const world = createSimulation(91);
+  world.tick = FIRST_WAVE_TICK;
+  stepSimulation(world, 1);
+  const arcanist = entity(world, 'blue-hero-arcanist');
+  const minion = entity(world, 'blue-minion-1-top-melee-0');
+  const outer = entity(world, 'red-tower-top-1');
+  const inner = entity(world, 'red-tower-top-2');
+  const crystal = entity(world, 'red-crystal');
+  for (const unit of world.entities) {
+    if ([arcanist.id, minion.id, outer.id, inner.id, crystal.id].includes(unit.id)) continue;
+    unit.alive = false; unit.hp = 0; unit.respawnTicks = 0;
+  }
+  arcanist.position = { x: 0, y: -8 };
+  arcanist.lane = 'top';
+  arcanist.gold = 0;
+  arcanist.attackDamage = 100;
+  arcanist.damageType = 'physical';
+  arcanist.attackRange = 5.4;
+  arcanist.critChance = 0;
+  arcanist.cooldownRemaining = 0;
+  minion.position = { x: 0.5, y: -8 };
+  minion.lane = 'top';
+  minion.attackDamage = 100;
+  minion.attackRange = 1.35;
+  minion.moveSpeed = 0;
+  outer.position = { x: 1.5, y: -8 };
+  outer.attackRange = 5.8;
+  outer.attackDamage = 0;
+  outer.attackCooldownTicks = 9999;
+  outer.cooldownRemaining = 9999;
+  inner.position = { x: 0.2, y: -8 };
+  inner.attackRange = 0;
+  inner.attackDamage = 0;
+  crystal.position = { x: 0.5, y: -8 };
+  stepSimulation(world, 1);
+  assert.ok(outer.hp < outer.maxHp);
+  assert.equal(inner.hp, inner.maxHp);
+  assert.equal(crystal.hp, crystal.maxHp);
 });

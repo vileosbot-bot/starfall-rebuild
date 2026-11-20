@@ -197,7 +197,9 @@ test('minimap markers include both teams and highlight only the selected player 
   const selectedHeroId = getPlayerHeroId('ranger');
   const markers = getMinimapMarkers(world, selectedHeroId);
   assert.equal(markers.filter((marker) => marker.kind === 'hero').length, 10);
-  assert.equal(markers.filter((marker) => marker.kind === 'tower').length, 4);
+  const towerMarkers = markers.filter((marker) => marker.kind === 'tower');
+  assert.equal(towerMarkers.length, 12);
+  for (const laneY of [-8, 0, 8]) assert.equal(towerMarkers.filter((marker) => marker.y === laneY).length, 4);
   assert.equal(markers.filter((marker) => marker.kind === 'crystal').length, 2);
   assert.ok(markers.some((marker) => marker.kind === 'minion'));
   assert.ok(markers.some((marker) => marker.id === selectedHeroId && marker.selected));
@@ -224,6 +226,7 @@ test('HUD contains a non-interactive minimap separated from the top bar and skil
   assert.ok(render.includes("entity.minionType === 'siege'"));
   assert.ok(render.includes("entity.minionType === 'super'"));
   assert.ok(render.includes('for (const laneZ of [-8, 0, 8])'));
+  assert.ok(render.includes('group.position.set(entity.position.x, 0, entity.position.y)'));
   assert.ok(render.includes('riverGeometry'));
   assert.ok(render.includes('grassGeometry'));
 });

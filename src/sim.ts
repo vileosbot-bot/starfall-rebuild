@@ -10,6 +10,9 @@ export const MAX_EVENT_HISTORY = 5000;
 const EVENT_HISTORY_PRUNE_BATCH = 1000;
 
 export type Team = 'blue' | 'red';
+export type Lane = 'top' | 'mid' | 'bottom';
+export const LANE_Y: Record<Lane, number> = { top: -8, mid: 0, bottom: 8 };
+const LANES: readonly Lane[] = ['top', 'mid', 'bottom'];
 export type Faction = Team | 'neutral';
 export type UnitKind = 'hero' | 'minion' | 'monster' | 'tower' | 'crystal';
 export type DamageType = 'physical' | 'magic';
@@ -73,6 +76,7 @@ export interface SimEntity {
   minionType?: MinionType;
   monsterType?: MonsterType;
   towerIndex?: number;
+  lane?: Lane;
   position: Position;
   hp: number;
   maxHp: number;
@@ -128,6 +132,7 @@ export interface SimEvent {
 
 export interface PendingMinionSpawn {
   team: Team;
+  lane: Lane;
   minionType: MinionType;
   wave: number;
   index: number;
@@ -299,7 +304,9 @@ const CHANNEL_TICKS = 5 * TICKS_PER_SECOND;
 const CHANNEL_COOLDOWN_TICKS = 60 * TICKS_PER_SECOND;
 const RECALL_COOLDOWN_TICKS = TICKS_PER_SECOND;
 
-const HERO_LANE_OFFSETS = [-2, -1, 0, 1, 2] as const;
+export const HERO_LANES: Record<HeroRole, Lane> = {
+  vanguard: 'mid', ranger: 'mid', arcanist: 'top', duelist: 'bottom', guardian: 'top',
+};
 const HERO_RESPAWN_TICKS = 120;
 const MONSTER_RESPAWN_TICKS = 900;
 const VISION_RANGE = 5.8;
@@ -312,6 +319,17 @@ function distance(a: Position, b: Position): number {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
   return Math.sqrt(dx * dx + dy * dy);
+}
+
+function laneFromY(y: number): Lane {
+  if (y < -4) return 'top';
+  if (y > 4) return 'bottom';
+  return 'mid';
+}
+
+function getEntityLane(entity: SimEntity): Lane {
+  if (entity.kind === 'minion') return laneFromY(entity.position.y);
+  return entity.lane ?? laneFromY(entity.position.y);
 }
 
 function addEvent(world: Simulation, event: Omit<SimEvent, 'tick' | 'sequence'>): void {
@@ -343,7 +361,7 @@ function nextRandom(world: Simulation): number {
   return world.rngState / 0x100000000;
 }
 
-function createHero(team: Team, template: HeroTemplate, index: number): SimEntity {
+function createHero(team: Team, template: HeroTemplate): SimEntity {
   const spawnX = team === 'blue' ? -10.8 : 10.8;
   return {
     id: team + '-hero-' + template.role,
@@ -352,7 +370,8 @@ function createHero(team: Team, template: HeroTemplate, index: number): SimEntit
     team,
     role: template.role,
     aiState: 'push',
-    position: { x: spawnX, y: HERO_LANE_OFFSETS[index] },
+    lane: HERO_LANES[template.role],
+    position: { x: spawnX, y: LANE_Y[HERO_LANES[template.role]] },
     hp: template.maxHp,
     maxHp: template.maxHp,
     armor: template.armor,
@@ -389,39 +408,18 @@ function createHero(team: Team, template: HeroTemplate, index: number): SimEntit
   };
 }
 
-function createTower(team: Team, index: number, x: number): SimEntity {
+function createTower(team: Team, lane: Lane, index: number, x: number): SimEntity {
   return {
-    id: team + '-tower-' + index,
-    name: team + ' ' + (index === 1 ? 'Outer' : 'Inner') + ' Tower',
-    kind: 'tower',
-    team,
-    towerIndex: index,
-    position: { x, y: 0 },
-    hp: 1050,
-    maxHp: 1050,
-    armor: 38,
-    resistance: 24,
-    attackDamage: 44,
-    magicPower: 0,
-    damageType: 'physical',
-    attackRange: 5.8,
-    attackCooldownTicks: 24,
-    cooldownRemaining: 0,
-    moveSpeed: 0,
-    level: 1,
-    experience: 0,
-    gold: 0,
-    kills: 0,
-    deaths: 0,
-    assists: 0,
-    inventory: [],
-    alive: true,
-    respawnTicks: 0,
-    respawnDurationTicks: 0,
-    bountyGold: 120,
-    bountyExperience: 100,
-    critChance: 0,
-    aggroRange: 5.8,
+    id: team + '-tower-' + lane + '-' + index,
+    name: team + ' ' + lane + ' ' + (index === 1 ? 'Outer' : 'Inner') + ' Tower',
+    kind: 'tower', team, towerIndex: index, lane,
+    position: { x, y: LANE_Y[lane] },
+    hp: 1050, maxHp: 1050, armor: 38, resistance: 24,
+    attackDamage: 44, magicPower: 0, damageType: 'physical',
+    attackRange: 5.8, attackCooldownTicks: 24, cooldownRemaining: 0,
+    moveSpeed: 0, level: 1, experience: 0, gold: 0, kills: 0, deaths: 0, assists: 0,
+    inventory: [], alive: true, respawnTicks: 0, respawnDurationTicks: 0,
+    bountyGold: 120, bountyExperience: 100, critChance: 0, aggroRange: 5.8,
   };
 }
 
@@ -518,16 +516,18 @@ export function createSimulation(seed = 1, playerRole?: HeroRole): Simulation {
   };
 
   for (const team of ['blue', 'red'] as const) {
-    HERO_TEMPLATES.forEach((template, index) => {
-      world.entities.push(createHero(team, template, index));
+    HERO_TEMPLATES.forEach((template) => {
+      world.entities.push(createHero(team, template));
     });
   }
 
-  // Outer towers guard the lane nearer the river; inner towers protect each base.
-  world.entities.push(createTower('blue', 1, -4));
-  world.entities.push(createTower('blue', 2, -8));
-  world.entities.push(createTower('red', 1, 4));
-  world.entities.push(createTower('red', 2, 8));
+  for (const team of ['blue', 'red'] as const) {
+    const direction = team === 'blue' ? -1 : 1;
+    for (const lane of LANES) {
+      world.entities.push(createTower(team, lane, 1, direction * 4));
+      world.entities.push(createTower(team, lane, 2, direction * 8));
+    }
+  }
   world.entities.push(createCrystal('blue'));
   world.entities.push(createCrystal('red'));
   world.entities.push(createMonster('sentinel'));
@@ -540,107 +540,70 @@ export function createSimulation(seed = 1, playerRole?: HeroRole): Simulation {
   return world;
 }
 
-function createMinion(team: Team, type: MinionType, wave: number, index: number): SimEntity {
-  const melee = type === 'melee';
-  const ranged = type === 'ranged';
-  const siege = type === 'siege';
-  const superMinion = type === 'super';
+function createMinion(team: Team, lane: Lane, type: MinionType, wave: number, index: number): SimEntity {
+  const melee = type === 'melee', ranged = type === 'ranged', siege = type === 'siege', superMinion = type === 'super';
   const spawnX = team === 'blue' ? -10.2 : 10.2;
-  const y = melee ? (index === 0 ? -0.275 : 0.275) : ranged ? 0 : siege ? -0.85 : 0.85;
+  const laneY = LANE_Y[lane];
+  const y = laneY + (melee ? (index === 0 ? -0.275 : 0.275) : ranged ? 0 : siege ? -0.85 : 0.85);
   const hp = melee ? 230 : ranged ? 160 : siege ? 420 : 945;
   const attackDamage = melee ? 23 : ranged ? 0 : siege ? 34 : 46;
   const bountyGold = melee ? 18 : ranged ? 22 : siege ? 42 : 47;
   const bountyExperience = melee ? 24 : ranged ? 28 : siege ? 40 : 45;
   return {
-    id: team + '-minion-' + wave + '-' + type + '-' + index,
-    name: team + ' ' + type + ' minion ' + wave + '.' + (index + 1),
-    kind: 'minion',
-    team,
-    minionType: type,
-    position: { x: spawnX, y },
-    hp,
-    maxHp: hp,
-    armor: ranged ? 5 : 10,
-    resistance: ranged ? 10 : 7,
-    attackDamage,
-    magicPower: ranged ? 25 : 0,
-    damageType: ranged ? 'magic' : 'physical',
-    attackRange: ranged ? 4.4 : 1.35,
-    attackCooldownTicks: ranged ? 25 : 20,
-    cooldownRemaining: 0,
+    id: team + '-minion-' + wave + '-' + lane + '-' + type + '-' + index,
+    name: team + ' ' + lane + ' ' + type + ' minion ' + wave + '.' + (index + 1),
+    kind: 'minion', team, minionType: type, lane, position: { x: spawnX, y },
+    hp, maxHp: hp, armor: ranged ? 5 : 10, resistance: ranged ? 10 : 7,
+    attackDamage, magicPower: ranged ? 25 : 0, damageType: ranged ? 'magic' : 'physical',
+    attackRange: ranged ? 4.4 : 1.35, attackCooldownTicks: ranged ? 25 : 20, cooldownRemaining: 0,
     moveSpeed: ranged ? 1.55 : siege ? 1.4 : superMinion ? 1.75 : 1.75,
-    level: 1,
-    experience: 0,
-    gold: 0,
-    kills: 0,
-    deaths: 0,
-    assists: 0,
-    inventory: [],
-    alive: true,
-    respawnTicks: 0,
-    respawnDurationTicks: 0,
-    bountyGold,
-    bountyExperience,
-    critChance: 0,
-    aggroRange: 4.8,
+    level: 1, experience: 0, gold: 0, kills: 0, deaths: 0, assists: 0, inventory: [],
+    alive: true, respawnTicks: 0, respawnDurationTicks: 0,
+    bountyGold, bountyExperience, critChance: 0, aggroRange: 4.8,
   };
 }
 
 function spawnWave(world: Simulation): void {
   world.waveCount += 1;
   for (const team of ['blue', 'red'] as const) {
-    const schedule: Array<{ minionType: MinionType; index: number; offset: number }> = [
-      { minionType: 'melee', index: 0, offset: 0 },
-      { minionType: 'melee', index: 1, offset: 12 },
-      { minionType: 'ranged', index: 0, offset: 24 },
-    ];
-    if (world.waveCount % 3 === 0) {
-      schedule.push({ minionType: 'siege', index: 0, offset: schedule.length * 12 });
-    }
-    const enemyInnerTower = world.entities.find((entity) =>
-      entity.kind === 'tower' && entity.team === oppositeTeam(team) && entity.towerIndex === 2
-    );
-    if (!enemyInnerTower?.alive) {
-      schedule.push({ minionType: 'super', index: 0, offset: schedule.length * 12 });
-    }
-    for (const entry of schedule) {
-      world.pendingMinionSpawns.push({
-        team,
-        minionType: entry.minionType,
-        wave: world.waveCount,
-        index: entry.index,
-        spawnTick: world.tick + entry.offset,
+    let plannedMinionCount = 0;
+    for (const lane of LANES) {
+      const schedule: Array<{ minionType: MinionType; index: number; offset: number }> = [
+        { minionType: 'melee', index: 0, offset: 0 },
+        { minionType: 'melee', index: 1, offset: 12 },
+        { minionType: 'ranged', index: 0, offset: 24 },
+      ];
+      if (world.waveCount % 3 === 0) schedule.push({ minionType: 'siege', index: 0, offset: schedule.length * 12 });
+      const enemyInnerTower = world.entities.find((entity) =>
+        entity.kind === 'tower' && entity.team === oppositeTeam(team) && entity.lane === lane && entity.towerIndex === 2
+      );
+      if (!enemyInnerTower?.alive) schedule.push({ minionType: 'super', index: 0, offset: schedule.length * 12 });
+      plannedMinionCount += schedule.length;
+      for (const entry of schedule) world.pendingMinionSpawns.push({
+        team, lane, minionType: entry.minionType, wave: world.waveCount,
+        index: entry.index, spawnTick: world.tick + entry.offset,
       });
     }
     addEvent(world, {
-      type: 'wave-spawned',
-      team,
-      amount: schedule.length,
-      detail: 'wave-' + world.waveCount,
+      type: 'wave-spawned', team, amount: plannedMinionCount,
+      detail: 'wave-' + world.waveCount + ';lanes=top,mid,bottom;per-team-total=' + plannedMinionCount,
     });
   }
 }
 
 function spawnPendingMinions(world: Simulation): void {
-  const due = world.pendingMinionSpawns
-    .filter((spawn) => spawn.spawnTick <= world.tick)
-    .sort((a, b) =>
-      a.spawnTick - b.spawnTick ||
-      (a.team < b.team ? -1 : a.team > b.team ? 1 : 0) ||
-      a.index - b.index ||
-      (a.minionType < b.minionType ? -1 : a.minionType > b.minionType ? 1 : 0)
-    );
+  const laneRank = (lane: Lane): number => lane === 'top' ? 0 : lane === 'mid' ? 1 : 2;
+  const due = world.pendingMinionSpawns.filter((spawn) => spawn.spawnTick <= world.tick).sort((a, b) =>
+    a.spawnTick - b.spawnTick ||
+    (a.team < b.team ? -1 : a.team > b.team ? 1 : 0) ||
+    laneRank(a.lane) - laneRank(b.lane) || a.index - b.index ||
+    (a.minionType < b.minionType ? -1 : a.minionType > b.minionType ? 1 : 0)
+  );
   world.pendingMinionSpawns = world.pendingMinionSpawns.filter((spawn) => spawn.spawnTick > world.tick);
   for (const spawn of due) {
-    const minion = createMinion(spawn.team, spawn.minionType, spawn.wave, spawn.index);
+    const minion = createMinion(spawn.team, spawn.lane, spawn.minionType, spawn.wave, spawn.index);
     world.entities.push(minion);
-    addEvent(world, {
-      type: 'minion-spawned',
-      targetId: minion.id,
-      team: spawn.team,
-      amount: minion.hp,
-      detail: spawn.minionType,
-    });
+    addEvent(world, { type: 'minion-spawned', targetId: minion.id, team: spawn.team, amount: minion.hp, detail: spawn.minionType });
   }
 }
 
@@ -658,11 +621,15 @@ function nearestEntity(
 
 function findStructureTarget(world: Simulation, origin: SimEntity): SimEntity | null {
   if (origin.team === 'neutral') return null;
-  const enemy = oppositeTeam(origin.team);
-  const towers = world.entities
-    .filter((entity) => entity.kind === 'tower' && entity.team === enemy && entity.alive)
-    .sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
+  const enemy = oppositeTeam(origin.team), lane = getEntityLane(origin);
+  const towers = world.entities.filter((entity) =>
+    entity.kind === 'tower' && entity.team === enemy && entity.alive && getEntityLane(entity) === lane
+  ).sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
   if (towers.length > 0) return towers[0];
+  const anyEnemyInnerTowerDestroyed = world.entities.some((entity) =>
+    entity.kind === 'tower' && entity.team === enemy && entity.towerIndex === 2 && !entity.alive
+  );
+  if (!anyEnemyInnerTowerDestroyed) return null;
   return world.entities.find((entity) => entity.kind === 'crystal' && entity.team === enemy && entity.alive) ?? null;
 }
 
@@ -675,27 +642,23 @@ function selectTarget(world: Simulation, actor: SimEntity): SimEntity | null {
       .sort((a, b) => a.range - b.range || (a.entity.id < b.entity.id ? -1 : a.entity.id > b.entity.id ? 1 : 0));
     const nearest = rankedPrey[0];
     if (!nearest) return null;
-    // Ignore a cross-team near-tie within one melee-minion fixed-step movement (1.75 * 0.05).
     if (rankedPrey.some((entry) => entry.entity.team !== nearest.entity.team && entry.range - nearest.range <= 0.0875)) return null;
     return nearest.entity;
   }
-
-  const enemy = oppositeTeam(actor.team);
+  const enemy = oppositeTeam(actor.team), lane = getEntityLane(actor);
   const alive = world.entities.filter((entity) => entity.alive && entity.team === enemy);
-
   if (actor.kind === 'tower') {
-    const minions = alive.filter((entity) => entity.kind === 'minion');
+    const minions = alive.filter((entity) => entity.kind === 'minion' && getEntityLane(entity) === lane);
     const minionTarget = nearestEntity(actor, minions, actor.attackRange);
     if (minionTarget) return minionTarget;
-    const heroes = alive.filter((entity) => entity.kind === 'hero');
+    const heroes = alive.filter((entity) => entity.kind === 'hero' && getEntityLane(entity) === lane);
     return nearestEntity(actor, heroes, actor.attackRange);
   }
-
   if (actor.kind === 'hero') {
-    const heroes = alive.filter((entity) => entity.kind === 'hero');
+    const heroes = alive.filter((entity) => entity.kind === 'hero' && getEntityLane(entity) === lane);
     const heroTarget = nearestEntity(actor, heroes, VISION_RANGE);
     if (heroTarget) return heroTarget;
-    const minions = alive.filter((entity) => entity.kind === 'minion');
+    const minions = alive.filter((entity) => entity.kind === 'minion' && getEntityLane(entity) === lane);
     const minionTarget = nearestEntity(actor, minions, VISION_RANGE);
     if (minionTarget) return minionTarget;
     const monsters = world.entities.filter((entity) => entity.alive && entity.team === 'neutral' && entity.kind === 'monster');
@@ -703,21 +666,17 @@ function selectTarget(world: Simulation, actor: SimEntity): SimEntity | null {
     if (monsterTarget) return monsterTarget;
     return findStructureTarget(world, actor);
   }
-
   if (actor.kind === 'minion') {
-    const minions = alive.filter((entity) => entity.kind === 'minion');
+    const minions = alive.filter((entity) => entity.kind === 'minion' && getEntityLane(entity) === lane);
     const minionTarget = nearestEntity(actor, minions, actor.aggroRange);
     if (minionTarget) return minionTarget;
     const structure = findStructureTarget(world, actor);
-    // Once a minion reaches its structure's lane pocket, it stays on the siege target
-    // instead of being pulled away by a nearby defending hero.
     if (structure && distance(actor.position, structure.position) <= actor.aggroRange) return structure;
-    const heroes = alive.filter((entity) => entity.kind === 'hero');
+    const heroes = alive.filter((entity) => entity.kind === 'hero' && getEntityLane(entity) === lane);
     const heroTarget = nearestEntity(actor, heroes, actor.aggroRange);
     if (heroTarget) return heroTarget;
     return structure;
   }
-
   return null;
 }
 
@@ -1073,6 +1032,10 @@ function moveTowards(actor: SimEntity, target: SimEntity): void {
   if (currentDistance === 0 || movement <= 0) return;
   actor.position.x += (dx / currentDistance) * movement;
   actor.position.y += (dy / currentDistance) * movement;
+  if (actor.kind === 'minion') {
+    const laneY = LANE_Y[laneFromY(actor.position.y)];
+    actor.position.y = Math.max(laneY - 1.2, Math.min(laneY + 1.2, actor.position.y));
+  }
 }
 
 function setHeroBehavior(world: Simulation, hero: SimEntity, next: HeroBehavior): void {
@@ -1125,11 +1088,10 @@ function hasFriendlyMinionInTowerRange(world: Simulation, hero: SimEntity, tower
 }
 
 function findHeroCombatTarget(world: Simulation, hero: SimEntity): SimEntity | null {
-  const enemy = oppositeTeam(hero.team as Team);
+  const enemy = oppositeTeam(hero.team as Team), lane = getEntityLane(hero);
   const enemyHeroes = world.entities
-    .filter((entity) => entity.alive && entity.team === enemy && entity.kind === 'hero')
+    .filter((entity) => entity.alive && entity.team === enemy && entity.kind === 'hero' && getEntityLane(entity) === lane)
     .map((entity) => ({ entity, range: distance(hero.position, entity.position) }))
-    // Execute local threats, and intercept wounded heroes that have crossed onto our half.
     .filter((entry) =>
       (entry.range <= AI_RULES.minionSearchRange ||
         (hero.team === 'blue' ? entry.entity.position.x < 0 : entry.entity.position.x > 0)) &&
@@ -1137,21 +1099,14 @@ function findHeroCombatTarget(world: Simulation, hero: SimEntity): SimEntity | n
     )
     .sort((a, b) => a.entity.hp - b.entity.hp || a.range - b.range || (a.entity.id < b.entity.id ? -1 : a.entity.id > b.entity.id ? 1 : 0));
   if (enemyHeroes.length > 0) return enemyHeroes[0].entity;
-
   const enemyMinions = world.entities.filter((entity) =>
-    entity.alive && entity.team === enemy && entity.kind === 'minion'
+    entity.alive && entity.team === enemy && entity.kind === 'minion' && getEntityLane(entity) === lane
   );
   const minionTarget = nearestEntity(hero, enemyMinions, AI_RULES.minionSearchRange);
   if (minionTarget) return minionTarget;
-
-  // The escorted structure takes priority over optional jungle farming. The minion
-  // inside tower range is the explicit tanking window that authorizes hero damage.
   const structure = findStructureTarget(world, hero);
-  if (structure?.kind === 'tower') {
-    return hasFriendlyMinionInTowerRange(world, hero, structure) ? structure : null;
-  }
+  if (structure?.kind === 'tower') return hasFriendlyMinionInTowerRange(world, hero, structure) ? structure : null;
   if (structure) return structure;
-
   if (hero.hp / hero.maxHp >= AI_RULES.healthyMonsterHealthRatio) {
     const monsters = world.entities.filter((entity) =>
       entity.alive && entity.team === 'neutral' && entity.kind === 'monster'
@@ -1207,7 +1162,7 @@ function updateHeroAI(world: Simulation, hero: SimEntity): void {
   const leadingMinion = world.entities
     .filter((entity) =>
       entity.alive && entity.kind === 'minion' && entity.team === hero.team &&
-      distance(hero.position, entity.position) <= 8
+      getEntityLane(entity) === getEntityLane(hero) && distance(hero.position, entity.position) <= 8
     )
     .sort((a, b) => pushDirection * (b.position.x - a.position.x) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0];
   if (leadingMinion) {
@@ -1298,6 +1253,7 @@ function castRoleSkill(world: Simulation, hero: SimEntity, key: 'Q' | 'E' | 'R')
         hero.position.x = primaryTarget.position.x - (dx / targetDistance) * 0.85;
         hero.position.y = primaryTarget.position.y - (dy / targetDistance) * 0.85;
       }
+      hero.lane = laneFromY(hero.position.y);
     }
     const targets = definition.effect === 'area-damage'
       ? playerEnemyTargets(world, hero).filter((entity) => distance(entity.position, primaryTarget!.position) <= (definition.radius ?? 0))
@@ -1338,6 +1294,7 @@ function castFlash(world: Simulation, hero: SimEntity, moveX: number, moveY: num
   }
   hero.position.x += (dx / directionLength) * FLASH_DISTANCE;
   hero.position.y += (dy / directionLength) * FLASH_DISTANCE;
+  hero.lane = laneFromY(hero.position.y);
   hero.skillCooldowns.F = FLASH_COOLDOWN_TICKS;
   addEvent(world, { type: 'player-skill', sourceId: hero.id, amount: FLASH_DISTANCE, detail: 'F:flash' });
   return true;
@@ -1396,6 +1353,7 @@ function applyPlayerCommand(world: Simulation, command?: PlayerCommand): void {
     if (hero.channel) cancelPlayerChannel(world, hero, 'move');
     moveTowardsPoint(hero, command.moveTarget, 0.3);
   }
+  hero.lane = laneFromY(hero.position.y);
 
   if (command.attack && !specifiedTarget) {
     if (hero.channel) cancelPlayerChannel(world, hero, 'attack');
@@ -1471,10 +1429,9 @@ function respawnEntities(world: Simulation): void {
     entity.cooldownRemaining = 0;
     if (entity.kind === 'hero' && entity.team !== 'neutral') {
       entity.aiState = 'push';
-      entity.position = {
-        x: entity.team === 'blue' ? -10.8 : 10.8,
-        y: entity.role ? HERO_LANE_OFFSETS[HERO_TEMPLATES.findIndex((template) => template.role === entity.role)] ?? 0 : 0,
-      };
+      const lane = entity.role ? HERO_LANES[entity.role] : 'mid';
+      entity.lane = lane;
+      entity.position = { x: entity.team === 'blue' ? -10.8 : 10.8, y: LANE_Y[lane] };
       addEvent(world, { type: 'hero-respawned', sourceId: entity.id, team: entity.team });
     } else if (entity.kind === 'monster') {
       entity.position = entity.monsterType === 'sentinel' ? { x: 0, y: -3.4 } : { x: 0, y: 3.4 };
