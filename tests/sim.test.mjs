@@ -507,6 +507,10 @@ test('space attack damages the nearest in-range enemy using the normal damage ca
   target.position = { x: 1, y: 9 };
   target.gold = 0;
   target.hp = target.maxHp;
+  for (const tower of world.entities.filter((unit) => unit.kind === 'tower')) {
+    tower.attackDamage = 0;
+    tower.attackRange = 0;
+  }
   const expected = calculateDamage(hero, target);
   stepSimulation(world, 1, { attack: true });
   const attack = world.events.find((event) => event.type === 'attack' && event.sourceId === hero.id && event.targetId === target.id);
@@ -1658,7 +1662,17 @@ test('player space and Q obey lane-local tower priority and any destroyed inner 
     assert.ok(Math.hypot(crystalPlayer.position.x - crystalStage.crystal.position.x, crystalPlayer.position.y - crystalStage.crystal.position.y) <= 3.2);
     const hitLimit = action === 'space' ? 4 : 3;
     for (let hit = 0; hit < hitLimit && crystalStage.world.winner === null; hit += 1) {
+      for (const minion of crystalStage.world.entities) {
+        if (minion.kind !== 'minion' || !minion.alive) continue;
+        minion.alive = false;
+        minion.hp = 0;
+        minion.respawnTicks = 0;
+      }
+      const crystalHpBeforeHit = crystalStage.crystal.hp;
       stepSimulation(crystalStage.world, 1, command);
+      if (action === 'Q') {
+        assert.ok(crystalStage.crystal.hp < crystalHpBeforeHit, 'each Q cast must damage the crystal rather than a nearer minion');
+      }
       if (action === 'Q' && crystalStage.world.winner === null && hit < hitLimit - 1) {
         stepSimulation(crystalStage.world, 120);
       }
