@@ -3,7 +3,7 @@ import { createHud, createMatchSession, getPlayerHeroId, HERO_LABELS, HERO_ROLES
 import type { AudioSettings, SettingsMode } from './hud.ts';
 import { createRenderScene, projectSimPointToScreen, screenToGroundPoint } from './render.ts';
 import { createSimulation, FIXED_STEP_SECONDS, getEventsAfterSequence, isStructureTargetEligible, stepSimulation } from './sim.ts';
-import type { HeroRole, PlayerCommand, PlayerSkillKey, Simulation } from './sim.ts';
+import type { HeroRole, PlayerCommand, PlayerSkillKey, Position, Simulation } from './sim.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 
@@ -64,7 +64,9 @@ let animationFrame = 0;
 const heldKeys = new Set<string>();
 let pendingAttack = false;
 let pendingSkill: PlayerSkillKey | null = null;
+let pendingAimPosition: Position | null = null;
 let aimingSkill: 'Q' | 'E' | 'R' | null = null;
+let playerAimPosition: Position | null = null;
 let playerMoveTarget: { x: number; y: number } | null = null;
 let playerAttackTargetId: string | null = null;
 const TARGET_PICK_RADIUS_PX = 28;
@@ -72,7 +74,9 @@ const GROUND_HALF_EXTENT = 20;
 
 function clearAimingSkill(): void {
   aimingSkill = null;
+  playerAimPosition = null;
   hud.setAimingSkill(null);
+  if (session.world) renderScene?.setSkillAimPreview(session.world, null, null);
 }
 
 function clearPlayerInput(): void {
@@ -84,6 +88,7 @@ function clearPlayerInput(): void {
   }
   pendingAttack = false;
   pendingSkill = null;
+  pendingAimPosition = null;
   playerMoveTarget = null;
   playerAttackTargetId = null;
   clearAimingSkill();
@@ -182,6 +187,26 @@ function onCanvasMouseDown(event: MouseEvent): void {
   hud.setPlayerTargetHint(null);
 }
 
+function onCanvasMouseMove(event: MouseEvent): void {
+  if (aimingSkill === null) return;
+  const world = session.world;
+  if (!world || paused || settingsOpen || world.winner !== null || !isPlayerHeroAlive(world) || !renderScene) {
+    playerAimPosition = null;
+    return;
+  }
+  const rect = renderScene.canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    playerAimPosition = null;
+    return;
+  }
+  playerAimPosition = screenToGroundPoint(
+    event.clientX - rect.left,
+    event.clientY - rect.top,
+    rect.width,
+    rect.height,
+  );
+}
+
 function consumePlayerCommand(): PlayerCommand {
   const left = heldKeys.has('a') || heldKeys.has('arrowleft');
   const right = heldKeys.has('d') || heldKeys.has('arrowright');
@@ -200,9 +225,11 @@ function consumePlayerCommand(): PlayerCommand {
     attackTargetId: playerAttackTargetId,
     attack: heldKeys.has(' ') || pendingAttack,
     skill: pendingSkill ?? undefined,
+    aimPosition: pendingAimPosition ? { ...pendingAimPosition } : undefined,
   };
   pendingAttack = false;
   pendingSkill = null;
+  pendingAimPosition = null;
   return command;
 }
 
@@ -287,6 +314,7 @@ function onKeyDown(event: KeyboardEvent): void {
     if (aimingSkill !== null) {
       clearAimingSkill();
       pendingSkill = null;
+      pendingAimPosition = null;
       return;
     }
     if (shopOpen) {
@@ -342,12 +370,14 @@ function onKeyDown(event: KeyboardEvent): void {
     }
     if (aimingSkill === null) {
       aimingSkill = key.toUpperCase() as 'Q' | 'E' | 'R';
+      playerAimPosition = null;
       hud.setAimingSkill(aimingSkill);
     }
     event.preventDefault();
     return;
   }
   if (['f', 'g', 'b'].includes(key)) {
+    pendingAimPosition = null;
     pendingSkill = key.toUpperCase() as PlayerSkillKey;
     event.preventDefault();
     if (aimingSkill === null) hud.setHint(key.toUpperCase());
@@ -371,8 +401,14 @@ function onKeyUp(event: KeyboardEvent): void {
   if (aimingSkill !== skill) return;
   const world = session.world;
   const canRelease = Boolean(world && !paused && !settingsOpen && world.winner === null && isPlayerHeroAlive(world));
+  const releasedAimPosition = playerAimPosition ? { ...playerAimPosition } : null;
   clearAimingSkill();
-  if (canRelease) pendingSkill = skill;
+  if (canRelease) {
+    pendingSkill = skill;
+    pendingAimPosition = releasedAimPosition;
+  } else {
+    pendingAimPosition = null;
+  }
 }
 
 
@@ -417,6 +453,7 @@ function frame(now: number): void {
   }
 
   renderScene.syncSimulation(world);
+  renderScene.setSkillAimPreview(world, aimingSkill, playerAimPosition);
   handleSimulationEvents(world);
 
   hudAccumulator += elapsed;
@@ -512,6 +549,7 @@ function startMatch(role: HeroRole): void {
 
   renderScene = createRenderScene(appElement);
   renderScene.canvas.addEventListener('mousedown', onCanvasMouseDown);
+  renderScene.canvas.addEventListener('mousemove', onCanvasMouseMove);
   renderScene.canvas.addEventListener('contextmenu', onCanvasContextMenu);
   renderScene.syncSimulation(world);
   renderScene.start();
@@ -527,6 +565,7 @@ function returnToMenu(): void {
   }
   session.leave();
   renderScene?.canvas.removeEventListener('mousedown', onCanvasMouseDown);
+  renderScene?.canvas.removeEventListener('mousemove', onCanvasMouseMove);
   renderScene?.canvas.removeEventListener('contextmenu', onCanvasContextMenu);
   renderScene?.dispose();
   renderScene = null;

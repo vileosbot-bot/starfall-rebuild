@@ -1,6 +1,7 @@
 // @ts-ignore Three.js is kept as the only runtime dependency; no extra type package is added.
 import * as THREE from 'three';
-import type { Simulation } from './sim.ts';
+import { HERO_SKILLS } from './sim.ts';
+import type { Position, Simulation } from './sim.ts';
 
 export interface ScreenPoint {
   x: number;
@@ -103,6 +104,34 @@ export function projectSimPointToScreen(
   return { x: ((ndcX + 1) * width) / 2, y: ((1 - ndcY) * height) / 2 };
 }
 
+
+export interface SkillAimPreviewData {
+  origin: Position;
+  aimPosition: Position | null;
+  range: number;
+  radius: number | null;
+}
+
+export function getSkillAimPreviewData(
+  world: Simulation,
+  skillKey: 'Q' | 'E' | 'R' | null,
+  aimPosition: Position | null,
+): SkillAimPreviewData | null {
+  if (!skillKey || (aimPosition && (!Number.isFinite(aimPosition.x) || !Number.isFinite(aimPosition.y)))) return null;
+  const hero = world.playerHeroId
+    ? world.entities.find((entity) => entity.id === world.playerHeroId && entity.kind === 'hero' && entity.alive)
+    : undefined;
+  if (!hero?.role) return null;
+  const definition = HERO_SKILLS[hero.role][skillKey];
+  if (definition.effect === 'heal') return null;
+  return {
+    origin: { ...hero.position },
+    aimPosition: aimPosition ? { ...aimPosition } : null,
+    range: definition.range,
+    radius: definition.effect === 'area-damage' ? definition.radius ?? 0 : null,
+  };
+}
+
 export function createRenderScene(container: HTMLElement) {
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
@@ -131,6 +160,11 @@ export function createRenderScene(container: HTMLElement) {
   const effects = new THREE.Group();
   effects.name = 'fx';
   scene.add(effects);
+
+  const aimPreview = new THREE.Group();
+  aimPreview.name = 'skill-aim-preview';
+  aimPreview.visible = false;
+  scene.add(aimPreview);
 
   const hemisphereLight = new THREE.HemisphereLight(0xd7e8ff, 0x25372d, 1.1);
   scene.add(hemisphereLight);
@@ -230,6 +264,85 @@ export function createRenderScene(container: HTMLElement) {
     red: new THREE.MeshStandardMaterial({ color: 0xffd0a9, roughness: 0.42, metalness: 0.24 }),
   };
   const unitMeshes = new Map<string, any>();
+
+  let previewSignature: string | null = null;
+  let previewRange: THREE.LineLoop | null = null;
+  let previewDirection: THREE.Line | null = null;
+  let previewArea: THREE.LineLoop | null = null;
+
+  function createPreviewCircle(radius: number, color: number): THREE.LineLoop {
+    const points = Array.from({ length: 65 }, (_, index) => {
+      const angle = (index / 64) * Math.PI * 2;
+      return new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+    });
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.82 });
+    return new THREE.LineLoop(geometry, material);
+  }
+
+  function disposePreviewLine(line: THREE.Line | THREE.LineLoop): void {
+    line.geometry.dispose();
+    const material = line.material;
+    if (Array.isArray(material)) material.forEach((entry) => entry.dispose());
+    else material.dispose();
+  }
+
+  function clearSkillAimPreview(): void {
+    for (const child of [...aimPreview.children]) {
+      aimPreview.remove(child);
+      if (child instanceof THREE.Line || child instanceof THREE.LineLoop) disposePreviewLine(child);
+    }
+    previewSignature = null;
+    previewRange = null;
+    previewDirection = null;
+    previewArea = null;
+    aimPreview.visible = false;
+  }
+
+  function setSkillAimPreview(
+    world: Simulation,
+    skillKey: 'Q' | 'E' | 'R' | null,
+    aimPosition: Position | null,
+  ): void {
+    const data = getSkillAimPreviewData(world, skillKey, aimPosition);
+    if (!data) {
+      if (previewSignature !== null || aimPreview.visible) clearSkillAimPreview();
+      return;
+    }
+    const signature = [
+      world.playerHeroId,
+      skillKey,
+      data.range,
+      data.radius ?? 'single',
+      data.aimPosition ? 'aimed' : 'range-only',
+    ].join(':');
+    if (previewSignature !== signature) {
+      clearSkillAimPreview();
+      previewRange = createPreviewCircle(data.range, 0x76c9ff);
+      aimPreview.add(previewRange);
+      if (data.aimPosition) {
+        const directionGeometry = new THREE.BufferGeometry();
+        const directionMaterial = new THREE.LineBasicMaterial({ color: 0xf4e7a4, transparent: true, opacity: 0.95 });
+        previewDirection = new THREE.Line(directionGeometry, directionMaterial);
+        aimPreview.add(previewDirection);
+        if (data.radius !== null && data.radius > 0) {
+          previewArea = createPreviewCircle(data.radius, 0xffc77a);
+          aimPreview.add(previewArea);
+        }
+      }
+      previewSignature = signature;
+    }
+    if (previewRange) previewRange.position.set(data.origin.x, 0.045, data.origin.y);
+    if (previewDirection && data.aimPosition) {
+      previewDirection.geometry.setFromPoints([
+        new THREE.Vector3(data.origin.x, 0.075, data.origin.y),
+        new THREE.Vector3(data.aimPosition.x, 0.075, data.aimPosition.y),
+      ]);
+    }
+    if (previewArea && data.aimPosition) previewArea.position.set(data.aimPosition.x, 0.055, data.aimPosition.y);
+    aimPreview.visible = true;
+  }
+
 
   function addPart(
     group: any,
@@ -342,10 +455,13 @@ export function createRenderScene(container: HTMLElement) {
       renderFrame();
     },
     syncSimulation,
+    setSkillAimPreview,
     dispose() {
       running = false;
       window.cancelAnimationFrame(animationFrame);
       window.removeEventListener('resize', resize);
+      clearSkillAimPreview();
+      scene.remove(aimPreview);
       Object.values(unitGeometries).forEach((geometry) => geometry.dispose());
       Object.values(teamMaterials).forEach((material) => material.dispose());
       Object.values(accentMaterials).forEach((material) => material.dispose());

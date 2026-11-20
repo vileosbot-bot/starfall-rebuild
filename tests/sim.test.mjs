@@ -647,31 +647,40 @@ test('G restores 30 percent of maximum health and mana continuously across all 1
   assert.equal(hero.skillCooldowns.G, 60 * 20 - 99);
 });
 
-test('interrupting G after 2.5 seconds keeps only the half-channel recovery already applied', () => {
+test('G channel continues through movement and flash while recovery completes', () => {
   const world = createSimulation(114, 'guardian');
   const hero = entity(world, 'blue-hero-guardian');
   const startHp = hero.maxHp - 400;
   hero.hp = startHp;
   hero.mana = 100;
   hero.manaRegenPerSecond = 0;
+  const startX = hero.position.x;
   stepSimulation(world, 1, { skill: 'G' });
   stepSimulation(world, 49);
 
   assert.equal(hero.channel.remainingTicks, 50);
   assert.ok(Math.abs(hero.channel.hpRestored - 153) <= 1);
   assert.ok(Math.abs(hero.channel.manaRestored - 45) <= 1);
-  const progressCountAtInterrupt = world.events.filter((event) => event.type === 'player-channel-progress').length;
-  assert.equal(progressCountAtInterrupt, 50);
+  const progressCountBeforeMove = world.events.filter((event) => event.type === 'player-channel-progress').length;
 
   stepSimulation(world, 1, { moveX: 1 });
-  assert.equal(hero.channel, null);
-  assert.ok(Math.abs(hero.hp - (startHp + 153)) <= 1);
-  assert.ok(Math.abs(hero.mana - 145) <= 1);
-  assert.equal(world.events.filter((event) => event.type === 'player-channel-progress').length, 50);
-  assert.ok(!world.events.some((event) => event.type === 'player-channel-completed' && event.detail?.startsWith('G:heal')));
-  assert.ok(world.events.some((event) => event.type === 'player-channel-cancelled' && event.detail === 'heal:move'));
-});
+  assert.ok(hero.channel, 'movement must not cancel the G channel');
+  assert.equal(hero.channel.remainingTicks, 49);
+  assert.ok(hero.position.x > startX, 'the player still moves during G');
+  assert.ok(hero.channel.hpRestored > 153, 'HP recovery continues while moving');
+  assert.ok(hero.channel.manaRestored > 45, 'MP recovery continues while moving');
+  assert.equal(world.events.filter((event) => event.type === 'player-channel-progress').length, progressCountBeforeMove + 1);
 
+  stepSimulation(world, 1, { skill: 'F', moveX: 1 });
+  assert.ok(hero.channel, 'flash displacement is movement and must not cancel G');
+  assert.equal(hero.skillCooldowns.F, 110 * 20);
+  stepSimulation(world, 48);
+  assert.equal(hero.channel, null);
+  assert.ok(Math.abs(hero.hp - (startHp + 306)) <= 1);
+  assert.ok(Math.abs(hero.mana - 190) <= 1);
+  assert.ok(!world.events.some((event) => event.type === 'player-channel-cancelled' && event.detail === 'heal:move'));
+  assert.ok(world.events.some((event) => event.type === 'player-channel-completed' && event.detail?.startsWith('G:heal')));
+});
 test('G cooldown remains 60 seconds from channel start: unavailable one second after completion and available by 60 seconds after', () => {
   const world = createSimulation(115, 'guardian');
   const hero = entity(world, 'blue-hero-guardian');
@@ -689,10 +698,13 @@ test('G cooldown remains 60 seconds from channel start: unavailable one second a
   assert.equal(hero.channel?.kind, 'heal');
 });
 
-test('B completes after five seconds and returns the player hero to the home crystal', () => {
+test('B completes after five seconds, returns to the home crystal, and the player recovers at the fountain', () => {
   const world = createSimulation(127, 'duelist');
   const hero = entity(world, 'blue-hero-duelist');
-  hero.position = { ...entity(world, 'blue-crystal').position };
+  hero.position = { x: 0, y: 0 };
+  hero.hp = hero.maxHp - 100;
+  hero.mana = 100;
+  hero.manaRegenPerSecond = 4;
   for (const unit of world.entities) {
     if (unit.kind === 'hero' && unit.id !== hero.id) {
       unit.alive = false;
@@ -700,6 +712,10 @@ test('B completes after five seconds and returns the player hero to the home cry
       unit.respawnTicks = 0;
     }
     if (unit.kind === 'monster') unit.position = { x: 50, y: 50 };
+    if (unit.kind === 'tower') {
+      unit.attackDamage = 0;
+      unit.cooldownRemaining = 9999;
+    }
   }
   stepSimulation(world, 1, { skill: 'B' });
   assert.equal(hero.skillCooldowns.B, 20, 'B cooldown is exactly one second at channel start');
@@ -712,11 +728,16 @@ test('B completes after five seconds and returns the player hero to the home cry
   assert.equal(hero.channel, null);
   assert.equal(hero.skillCooldowns.B, 0, 'the one-second B cooldown expires during the five-second channel');
   assert.ok(world.events.some((event) => event.type === 'player-channel-completed' && event.detail === 'B:recall'));
+
+  const hpAtFountain = hero.hp;
+  const manaAtFountain = hero.mana;
   stepSimulation(world, 20);
+  assert.ok(Math.abs(hero.hp - (hpAtFountain + 30)) <= 1e-9, 'player fountain HP recovery is 30 per second');
+  assert.ok(Math.abs(hero.mana - (manaAtFountain + 4)) <= 1e-9, 'existing 4 MP/s natural regeneration remains; no fountain-specific MP rate is invented');
+
   stepSimulation(world, 1, { skill: 'B' });
   assert.equal(hero.channel?.kind, 'recall', 'B can be started again one second after the previous channel ends');
 });
-
 test('cooldown and insufficient mana prevent repeated Q casts without spending more mana', () => {
   const world = createSimulation(131, 'arcanist');
   const hero = entity(world, 'blue-hero-arcanist');
@@ -761,33 +782,89 @@ test('moving or attacking interrupts G/B channels and keeps the started cooldown
   assert.ok(attackWorld.events.some((event) => event.type === 'player-channel-cancelled' && event.detail === 'heal:attack'));
 });
 
-test('damage interrupts a channel without applying its recovery effect', () => {
+function prepareGDamageWorld(attackerKind) {
   const world = createSimulation(149, 'guardian');
   const hero = entity(world, 'blue-hero-guardian');
-  const monster = entity(world, 'neutral-sentinel');
+  const attacker = attackerKind === 'tower'
+    ? entity(world, 'red-tower-top-1')
+    : entity(world, 'red-hero-guardian');
   for (const unit of world.entities) {
-    if (unit.kind === 'hero' && unit.id !== hero.id) {
-      unit.alive = false;
-      unit.hp = 0;
-      unit.respawnTicks = 0;
-    }
+    if (unit.id === hero.id || unit.id === attacker.id) continue;
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
   }
-  hero.position = { x: 0, y: 0 };
-  hero.hp = hero.maxHp - 100;
-  monster.position = { x: 50, y: 50 };
+  hero.position = { x: 0, y: -8 };
+  hero.hp = hero.maxHp - 800;
+  hero.mana = 100;
+  hero.manaRegenPerSecond = 0;
+  hero.moveSpeed = 0;
+
+  attacker.position = attackerKind === 'tower' ? { x: 4, y: -8 } : { x: 1, y: -8 };
+  attacker.attackRange = attackerKind === 'tower' ? 5.8 : 2;
+  attacker.attackDamage = 60;
+  attacker.attackCooldownTicks = 1;
+  attacker.cooldownRemaining = 1000;
+  attacker.moveSpeed = 0;
+  attacker.critChance = 0;
+  attacker.lane = 'top';
+  attacker.aggroRange = 5.5;
+  if (attackerKind === 'minion') {
+    attacker.kind = 'minion';
+    attacker.minionType = 'melee';
+    attacker.team = 'red';
+  }
+
   stepSimulation(world, 1, { skill: 'G' });
-  const hpAtChannelStart = hero.hp;
-  monster.position = { ...hero.position };
-  monster.attackRange = 2;
-  monster.attackDamage = 100;
-  monster.cooldownRemaining = 0;
-  const expectedDamage = calculateDamage(monster, hero);
-  stepSimulation(world, 1, { enabled: false });
-  assert.equal(hero.channel, null);
-  assert.equal(hero.hp, hpAtChannelStart - expectedDamage);
-  assert.ok(world.events.some((event) => event.type === 'player-channel-cancelled' && event.detail === 'heal:damage'));
+  stepSimulation(world, 49);
+  assert.ok(hero.channel);
+  assert.equal(hero.channel.remainingTicks, 50);
+  attacker.cooldownRemaining = 0;
+  return { world, hero, attacker };
+}
+
+test('hero and tower damage interrupt G but retain HP/MP already restored', () => {
+  for (const attackerKind of ['hero', 'tower']) {
+    const { world, hero, attacker } = prepareGDamageWorld(attackerKind);
+    const hpBeforeHit = hero.hp;
+    const manaBeforeHit = hero.mana;
+    const restoredHpBeforeHit = hero.channel.hpRestored;
+    const restoredManaBeforeHit = hero.channel.manaRestored;
+    const expectedDamage = calculateDamage(attacker, hero);
+
+    stepSimulation(world, 1);
+
+    assert.equal(hero.channel, null, attackerKind + ' damage interrupts G');
+    assert.equal(hero.hp, hpBeforeHit - expectedDamage, 'only incoming damage changes already-restored HP');
+    assert.equal(hero.mana, manaBeforeHit, 'already-restored MP is not rolled back');
+    assert.ok(restoredHpBeforeHit > 0);
+    assert.ok(restoredManaBeforeHit > 0);
+    assert.ok(world.events.some((event) =>
+      event.type === 'player-channel-cancelled' && event.detail === 'heal:damage'
+    ));
+  }
 });
 
+test('minion damage does not interrupt G and the recovery continues', () => {
+  const { world, hero, attacker } = prepareGDamageWorld('minion');
+  const hpBeforeHit = hero.hp;
+  const manaBeforeHit = hero.mana;
+  const restoredHpBeforeHit = hero.channel.hpRestored;
+  const restoredManaBeforeHit = hero.channel.manaRestored;
+  const expectedDamage = calculateDamage(attacker, hero);
+
+  stepSimulation(world, 1);
+
+  assert.ok(hero.channel, 'minion damage leaves the G channel active');
+  assert.equal(hero.channel.remainingTicks, 49);
+  assert.ok(hero.channel.hpRestored > restoredHpBeforeHit);
+  assert.ok(hero.channel.manaRestored > restoredManaBeforeHit);
+  assert.ok(Math.abs(hero.hp - (hpBeforeHit - expectedDamage + (hero.maxHp * 0.3 / 100))) < 1e-9);
+  assert.ok(hero.mana > manaBeforeHit);
+  assert.ok(!world.events.some((event) =>
+    event.type === 'player-channel-cancelled' && event.detail === 'heal:damage'
+  ));
+});
 test('dead and disabled player input cannot move, attack, or cast skills', () => {
   const deadWorld = createSimulation(151, 'ranger');
   const deadHero = entity(deadWorld, 'blue-hero-ranger');
@@ -1930,4 +2007,149 @@ test('opening match settings freezes the fixed-step loop and Continue resumes it
   runtime.frame(1500);
   assert.equal(simulation.tick, 4, 'Continue resumes the fixed-step simulation');
   assert.deepEqual(pausedSignals, [true, false]);
+});
+
+
+test('aimed single-target skills hit the cursor-nearest legal enemy and reject empty aim points', () => {
+  const makeWorld = () => {
+    const world = createSimulation(20261121, 'arcanist');
+    const hero = entity(world, 'blue-hero-arcanist');
+    const near = entity(world, 'red-hero-vanguard');
+    const far = entity(world, 'red-hero-ranger');
+    for (const unit of world.entities) {
+      if (unit.id === hero.id || unit.id === near.id || unit.id === far.id) continue;
+      unit.alive = false;
+      unit.hp = 0;
+      unit.respawnTicks = 0;
+    }
+    hero.position = { x: 0, y: 0 };
+    hero.moveSpeed = 0;
+    hero.mana = 300;
+    hero.manaRegenPerSecond = 0;
+    hero.critChance = 0;
+    for (const target of [near, far]) {
+      target.hp = target.maxHp;
+      target.armor = 0;
+      target.resistance = 0;
+      target.moveSpeed = 0;
+      target.attackDamage = 0;
+      target.attackRange = 0;
+      target.cooldownRemaining = 9999;
+    }
+    near.position = { x: 2, y: 0 };
+    far.position = { x: 5, y: 0 };
+    return { world, hero, near, far };
+  };
+
+  const aimed = makeWorld();
+  const nearHp = aimed.near.hp;
+  const farHp = aimed.far.hp;
+  stepSimulation(aimed.world, 1, { skill: 'Q', aimPosition: { x: 4.9, y: 0 } });
+  assert.equal(aimed.near.hp, nearHp, 'the nearer enemy is not substituted for the cursor target');
+  assert.ok(aimed.far.hp < farHp, 'the farther cursor-nearest enemy takes damage');
+  assert.ok(aimed.world.events.some((event) =>
+    event.type === 'player-skill' && event.sourceId === aimed.hero.id && event.targetId === aimed.far.id
+  ));
+
+  const empty = makeWorld();
+  const emptyTargetHp = empty.near.hp;
+  stepSimulation(empty.world, 1, { skill: 'Q', aimPosition: { x: 6.5, y: 0 } });
+  assert.equal(empty.near.hp, emptyTargetHp);
+  assert.equal(empty.hero.mana, 300, 'empty aim point does not spend mana');
+  assert.equal(empty.hero.skillCooldowns.Q, 0, 'empty aim point does not start cooldown');
+  assert.ok(!empty.world.events.some((event) =>
+    event.type === 'player-skill' && event.sourceId === empty.hero.id
+  ));
+});
+
+test('aimed area skills use the cursor point as their radius center', () => {
+  const world = createSimulation(20261122, 'arcanist');
+  const hero = entity(world, 'blue-hero-arcanist');
+  const inside = entity(world, 'red-hero-vanguard');
+  const outside = entity(world, 'red-hero-ranger');
+  for (const unit of world.entities) {
+    if (unit.id === hero.id || unit.id === inside.id || unit.id === outside.id) continue;
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
+  }
+  hero.position = { x: 0, y: 0 };
+  hero.moveSpeed = 0;
+  hero.mana = 300;
+  hero.manaRegenPerSecond = 0;
+  hero.critChance = 0;
+  for (const target of [inside, outside]) {
+    target.hp = target.maxHp;
+    target.armor = 0;
+    target.resistance = 0;
+    target.moveSpeed = 0;
+    target.attackDamage = 0;
+    target.attackRange = 0;
+    target.cooldownRemaining = 9999;
+  }
+  inside.position = { x: 4, y: 0 };
+  outside.position = { x: 4, y: 3 };
+  const insideHp = inside.hp;
+  const outsideHp = outside.hp;
+
+  stepSimulation(world, 1, { skill: 'E', aimPosition: { x: 4, y: 0 } });
+
+  assert.ok(inside.hp < insideHp, 'target inside the cursor-centered radius takes damage');
+  assert.equal(outside.hp, outsideHp, 'target outside the cursor-centered radius is untouched');
+  assert.ok(world.events.some((event) =>
+    event.type === 'player-skill' && event.sourceId === hero.id && event.targetId === inside.id
+  ));
+});
+
+test('aimed dash-strike selects the target nearest to the cursor within skill range', () => {
+  const world = createSimulation(20261123, 'duelist');
+  const hero = entity(world, 'blue-hero-duelist');
+  const near = entity(world, 'red-hero-vanguard');
+  const far = entity(world, 'red-hero-ranger');
+  for (const unit of world.entities) {
+    if (unit.id === hero.id || unit.id === near.id || unit.id === far.id) continue;
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
+  }
+  hero.position = { x: 0, y: 0 };
+  hero.moveSpeed = 0;
+  hero.mana = 300;
+  hero.manaRegenPerSecond = 0;
+  hero.critChance = 0;
+  for (const target of [near, far]) {
+    target.hp = target.maxHp;
+    target.armor = 0;
+    target.resistance = 0;
+    target.moveSpeed = 0;
+    target.attackDamage = 0;
+    target.attackRange = 0;
+    target.cooldownRemaining = 9999;
+  }
+  near.position = { x: 2, y: 0 };
+  far.position = { x: 5, y: 0 };
+  const nearHp = near.hp;
+  const farHp = far.hp;
+
+  stepSimulation(world, 1, { skill: 'E', aimPosition: { x: 4.9, y: 0 } });
+
+  assert.equal(near.hp, nearHp);
+  assert.ok(far.hp < farHp);
+  assert.ok(hero.position.x > 4, 'dash movement resolves toward the cursor-selected target');
+});
+
+
+test('G recovery is not doubled by fountain HP recovery while both occupy the same tick window', () => {
+  const world = createSimulation(20261124, 'guardian');
+  const hero = entity(world, 'blue-hero-guardian');
+  hero.position = { ...entity(world, 'blue-crystal').position };
+  hero.hp = hero.maxHp - 400;
+  hero.mana = 100;
+  hero.manaRegenPerSecond = 4;
+
+  stepSimulation(world, 100, { skill: 'G' });
+
+  assert.equal(hero.channel, null);
+  assert.ok(Math.abs(hero.hp - (hero.maxHp - 400 + Math.round(hero.maxHp * 0.3))) <= 1, 'G recovery is not doubled by fountain HP recovery');
+  assert.ok(Math.abs(hero.mana - 210) <= 1, 'G restores 90 MP while existing 4 MP/s natural regeneration independently restores 20 MP');
 });

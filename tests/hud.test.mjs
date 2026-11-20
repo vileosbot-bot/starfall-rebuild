@@ -478,3 +478,15 @@ test('app default 80/90 settings multiply the shared output, update immediately,
     else delete globalThis.window;
   }
 });
+
+
+test('Q/E/R pointer aim is forwarded on release, Escape clears it, and aiming ignores left-click selection', async () => {
+  const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.ok(source.includes('function onCanvasMouseMove(event: MouseEvent)'));
+  assert.ok(source.includes('playerAimPosition = screenToGroundPoint('));
+  assert.ok(source.includes('aimPosition: pendingAimPosition ? { ...pendingAimPosition } : undefined'));
+  assert.ok(source.includes('pendingAimPosition = null'));
+  assert.ok(source.includes('aimingSkill !== null || !renderScene'));
+  assert.ok(source.includes("addEventListener('mousemove', onCanvasMouseMove)"));
+  assert.ok(source.includes('setSkillAimPreview(world, aimingSkill, playerAimPosition)'));
+});
