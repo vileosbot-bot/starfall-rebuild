@@ -1,6 +1,6 @@
 import { createAudioController } from './audio.ts';
 import { createHud, createMatchSession, getPlayerHeroId, HERO_LABELS, HERO_ROLES } from './hud.ts';
-import { createRenderScene } from './render.ts';
+import { createRenderScene, projectSimPointToScreen, screenToGroundPoint } from './render.ts';
 import { createSimulation, FIXED_STEP_SECONDS, getEventsAfterSequence, stepSimulation } from './sim.ts';
 import type { HeroRole, PlayerCommand, PlayerSkillKey, Simulation } from './sim.ts';
 
@@ -43,6 +43,10 @@ const heldKeys = new Set<string>();
 let pendingAttack = false;
 let pendingSkill: PlayerSkillKey | null = null;
 let aimingSkill: 'Q' | 'E' | 'R' | null = null;
+let playerMoveTarget: { x: number; y: number } | null = null;
+let playerAttackTargetId: string | null = null;
+const TARGET_PICK_RADIUS_PX = 28;
+const GROUND_HALF_EXTENT = 20;
 
 function clearAimingSkill(): void {
   aimingSkill = null;
@@ -53,7 +57,10 @@ function clearPlayerInput(): void {
   heldKeys.clear();
   pendingAttack = false;
   pendingSkill = null;
+  playerMoveTarget = null;
+  playerAttackTargetId = null;
   clearAimingSkill();
+  hud.setPlayerTargetHint(null);
 }
 
 function isPlayerHeroAlive(world: Simulation | null = session.world): boolean {
@@ -62,15 +69,112 @@ function isPlayerHeroAlive(world: Simulation | null = session.world): boolean {
   return world.entities.some((entity) => entity.id === playerHeroId && entity.kind === 'hero' && entity.alive);
 }
 
+function isPlayerSelectableEnemyTarget(world: Simulation, targetId: string): boolean {
+  const player = world.playerHeroId
+    ? world.entities.find((entity) => entity.id === world.playerHeroId && entity.kind === 'hero' && entity.alive)
+    : undefined;
+  const target = world.entities.find((entity) => entity.id === targetId && entity.alive);
+  if (!player || !target || target.team === player.team || target.team === 'neutral') return false;
+  if (target.kind === 'hero' || target.kind === 'minion') return true;
+  if (target.kind !== 'tower' && target.kind !== 'crystal') return false;
+
+  const enemyTowers = world.entities
+    .filter((entity) => entity.kind === 'tower' && entity.team === target.team && entity.alive)
+    .sort((a, b) => (a.towerIndex ?? 0) - (b.towerIndex ?? 0));
+  if (enemyTowers.length > 0) return target.id === enemyTowers[0].id;
+  const enemyCrystal = world.entities.find((entity) => entity.kind === 'crystal' && entity.team === target.team && entity.alive);
+  return target.id === enemyCrystal?.id;
+}
+
+function findProjectedEnemyAtPoint(
+  world: Simulation,
+  screenX: number,
+  screenY: number,
+  width: number,
+  height: number,
+): Simulation['entities'][number] | null {
+  const player = world.playerHeroId
+    ? world.entities.find((entity) => entity.id === world.playerHeroId && entity.kind === 'hero' && entity.alive)
+    : undefined;
+  if (!player) return null;
+  const radiusSquared = TARGET_PICK_RADIUS_PX * TARGET_PICK_RADIUS_PX;
+  let nearest: Simulation['entities'][number] | null = null;
+  let nearestDistanceSquared = radiusSquared;
+
+  for (const entity of world.entities) {
+    if (!entity.alive || entity.team === player.team || entity.team === 'neutral') continue;
+    if (entity.kind !== 'hero' && entity.kind !== 'minion' && entity.kind !== 'tower' && entity.kind !== 'crystal') continue;
+    const worldHeight = entity.kind === 'tower' ? 1.6 : entity.kind === 'crystal' ? 1.35 : entity.kind === 'hero' ? 0.9 : 0.5;
+    const projected = projectSimPointToScreen(entity.position, width, height, worldHeight);
+    if (!projected) continue;
+    const dx = projected.x - screenX;
+    const dy = projected.y - screenY;
+    const distanceSquared = dx * dx + dy * dy;
+    if (distanceSquared > nearestDistanceSquared) continue;
+    if (distanceSquared === nearestDistanceSquared && nearest && entity.id > nearest.id) continue;
+    nearest = entity;
+    nearestDistanceSquared = distanceSquared;
+  }
+  return nearest;
+}
+
+function onCanvasContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+}
+
+function onCanvasMouseDown(event: MouseEvent): void {
+  if (event.button !== 0 && event.button !== 2) return;
+  if (event.button === 2) event.preventDefault();
+  const world = session.world;
+  if (
+    !world || paused || world.winner !== null || shopOpen || scoreboardOpen ||
+    !isPlayerHeroAlive(world) || aimingSkill !== null || !renderScene
+  ) return;
+
+  const rect = renderScene.canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  const screenX = event.clientX - rect.left;
+  const screenY = event.clientY - rect.top;
+  const clickedEntity = findProjectedEnemyAtPoint(world, screenX, screenY, rect.width, rect.height);
+  if (clickedEntity) {
+    // A locked inner tower or crystal is a blocked target, not a ground-move destination.
+    if (!isPlayerSelectableEnemyTarget(world, clickedEntity.id)) return;
+    playerAttackTargetId = clickedEntity.id;
+    playerMoveTarget = null;
+    hud.setPlayerTargetHint('attack', clickedEntity.id);
+    return;
+  }
+
+  if (event.button === 2) {
+    const groundPoint = screenToGroundPoint(screenX, screenY, rect.width, rect.height);
+    if (!groundPoint || Math.abs(groundPoint.x) > GROUND_HALF_EXTENT || Math.abs(groundPoint.y) > GROUND_HALF_EXTENT) return;
+    playerMoveTarget = groundPoint;
+    playerAttackTargetId = null;
+    hud.setPlayerTargetHint('move');
+    return;
+  }
+
+  playerMoveTarget = null;
+  playerAttackTargetId = null;
+  hud.setPlayerTargetHint(null);
+}
+
 function consumePlayerCommand(): PlayerCommand {
   const left = heldKeys.has('a') || heldKeys.has('arrowleft');
   const right = heldKeys.has('d') || heldKeys.has('arrowright');
   const up = heldKeys.has('w') || heldKeys.has('arrowup');
   const down = heldKeys.has('s') || heldKeys.has('arrowdown');
+  const world = session.world;
+  if (world && playerAttackTargetId && !isPlayerSelectableEnemyTarget(world, playerAttackTargetId)) {
+    playerAttackTargetId = null;
+    hud.setPlayerTargetHint(null);
+  }
   const command: PlayerCommand = {
     enabled: true,
     moveX: Number(right) - Number(left),
     moveY: Number(down) - Number(up),
+    moveTarget: playerMoveTarget ? { ...playerMoveTarget } : undefined,
+    attackTargetId: playerAttackTargetId,
     attack: heldKeys.has(' ') || pendingAttack,
     skill: pendingSkill ?? undefined,
   };
@@ -134,9 +238,8 @@ function onKeyDown(event: KeyboardEvent): void {
   if (event.repeat || !session.world) return;
   const key = event.key.toLowerCase();
   if (key === 'escape') {
-    if (aimingSkill !== null) clearAimingSkill();
+    clearPlayerInput();
     paused = !paused;
-    if (paused) clearPlayerInput();
     hud.setPaused(paused);
     return;
   }
@@ -160,6 +263,10 @@ function onKeyDown(event: KeyboardEvent): void {
   }
   if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
     heldKeys.add(key);
+    if (playerMoveTarget) {
+      playerMoveTarget = null;
+      hud.setPlayerTargetHint(playerAttackTargetId ? 'attack' : null, playerAttackTargetId ?? undefined);
+    }
     event.preventDefault();
     return;
   }
@@ -220,7 +327,18 @@ function frame(now: number): void {
       const playerHero = session.selectedRole
         ? world.entities.find((entity) => entity.id === getPlayerHeroId(session.selectedRole!))
         : null;
-      if (!playerHero?.alive) clearPlayerInput();
+      if (!playerHero?.alive || world.winner !== null) {
+        clearPlayerInput();
+      } else {
+        if (playerMoveTarget && Math.hypot(playerHero.position.x - playerMoveTarget.x, playerHero.position.y - playerMoveTarget.y) <= 0.3 + 1e-9) {
+          playerMoveTarget = null;
+          hud.setPlayerTargetHint(null);
+        }
+        if (playerAttackTargetId && !isPlayerSelectableEnemyTarget(world, playerAttackTargetId)) {
+          playerAttackTargetId = null;
+          hud.setPlayerTargetHint(null);
+        }
+      }
       accumulator -= FIXED_STEP_SECONDS;
       if (world.winner !== null) {
         accumulator = 0;
@@ -263,6 +381,8 @@ function startMatch(role: HeroRole): void {
   hud.update(world);
 
   renderScene = createRenderScene(appElement);
+  renderScene.canvas.addEventListener('mousedown', onCanvasMouseDown);
+  renderScene.canvas.addEventListener('contextmenu', onCanvasContextMenu);
   renderScene.syncSimulation(world);
   renderScene.start();
   unlockAudio();
@@ -276,6 +396,8 @@ function returnToMenu(): void {
     animationFrame = 0;
   }
   session.leave();
+  renderScene?.canvas.removeEventListener('mousedown', onCanvasMouseDown);
+  renderScene?.canvas.removeEventListener('contextmenu', onCanvasContextMenu);
   renderScene?.dispose();
   renderScene = null;
   paused = false;

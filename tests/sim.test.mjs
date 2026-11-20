@@ -1413,3 +1413,126 @@ test('hero assists include damage at 10 seconds and exclude damage older than 10
     event.incomeSource === 'hero-assist' && event.recipientId === assistantOut.id
   ));
 });
+
+function isolatePlayerAndTargets(world, ids) {
+  const keep = new Set(ids);
+  for (const unit of world.entities) {
+    if (keep.has(unit.id)) continue;
+    unit.alive = false;
+    unit.hp = 0;
+    unit.respawnTicks = 0;
+  }
+}
+
+test('right-click move target advances the player to within 0.3 units and then stops', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const player = entity(world, 'blue-hero-vanguard');
+  isolatePlayerAndTargets(world, [player.id]);
+  player.position = { x: 0, y: 0 };
+  player.moveSpeed = 4;
+  const target = { x: 1, y: 0 };
+
+  stepSimulation(world, 20, { moveTarget: target });
+  const remaining = Math.hypot(player.position.x - target.x, player.position.y - target.y);
+  assert.ok(remaining <= 0.3 + 1e-9, 'player should stop within the 0.3-unit arrival radius');
+  const stopped = { ...player.position };
+  stepSimulation(world, 10, { moveTarget: target });
+  assert.deepEqual(player.position, stopped);
+});
+
+test('manual WASD direction overrides a path target without moving toward that target', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const player = entity(world, 'blue-hero-vanguard');
+  isolatePlayerAndTargets(world, [player.id]);
+  player.position = { x: 0, y: 0 };
+  player.moveSpeed = 2;
+
+  stepSimulation(world, 1, { moveTarget: { x: 10, y: 0 }, moveX: 0, moveY: 1 });
+  assert.equal(player.position.x, 0);
+  assert.equal(player.position.y, 0.1);
+});
+
+test('specified attack target automatically pulls the player into range and attacks without the space key', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const player = entity(world, 'blue-hero-vanguard');
+  const target = entity(world, 'red-hero-ranger');
+  isolatePlayerAndTargets(world, [player.id, target.id]);
+  player.position = { x: 0, y: 0 };
+  player.moveSpeed = 4;
+  player.attackRange = 1;
+  player.attackDamage = 60;
+  player.attackCooldownTicks = 1;
+  player.cooldownRemaining = 0;
+  player.critChance = 0;
+  target.position = { x: 4, y: 0 };
+  target.maxHp = 10000;
+  target.hp = 10000;
+  target.moveSpeed = 0;
+  target.attackRange = 0;
+  target.attackDamage = 0;
+  target.attackCooldownTicks = 9999;
+  target.cooldownRemaining = 9999;
+
+  stepSimulation(world, 40, { attackTargetId: target.id });
+  assert.ok(player.position.x > 2.5, 'player should automatically approach the specified target');
+  assert.ok(Math.hypot(player.position.x - target.position.x, player.position.y - target.position.y) <= player.attackRange);
+  assert.ok(target.hp < target.maxHp, 'specified target should lose health to automatic basic attacks');
+  assert.ok(world.events.some((event) => event.type === 'attack' && event.sourceId === player.id && event.targetId === target.id));
+});
+
+test('space attack prioritizes the specified target and falls back to the nearest enemy when it is invalid', () => {
+  const world = createSimulation(20261120, 'vanguard');
+  const player = entity(world, 'blue-hero-vanguard');
+  const nearest = entity(world, 'red-hero-vanguard');
+  const specified = entity(world, 'red-hero-ranger');
+  isolatePlayerAndTargets(world, [player.id, nearest.id, specified.id]);
+  player.position = { x: 0, y: 0 };
+  player.attackRange = 2;
+  player.attackDamage = 80;
+  player.cooldownRemaining = 0;
+  player.attackCooldownTicks = 1;
+  player.critChance = 0;
+  for (const target of [nearest, specified]) {
+    target.position = { x: target === nearest ? 0.4 : 1.2, y: 0 };
+    target.maxHp = 10000;
+    target.hp = 10000;
+    target.moveSpeed = 0;
+    target.attackRange = 0;
+    target.attackDamage = 0;
+    target.attackCooldownTicks = 9999;
+    target.cooldownRemaining = 9999;
+  }
+
+  stepSimulation(world, 1, { attack: true, attackTargetId: specified.id });
+  let attack = world.events.find((event) => event.type === 'attack' && event.sourceId === player.id);
+  assert.equal(attack?.targetId, specified.id);
+  assert.equal(nearest.hp, nearest.maxHp);
+
+  specified.alive = false;
+  specified.hp = 0;
+  player.cooldownRemaining = 0;
+  stepSimulation(world, 1, { attack: true, attackTargetId: specified.id });
+  attack = world.events.filter((event) => event.type === 'attack' && event.sourceId === player.id).at(-1);
+  assert.equal(attack?.targetId, nearest.id, 'invalid specified target should fall back to the nearest eligible enemy');
+  assert.ok(nearest.hp < nearest.maxHp);
+});
+
+test('specified attack target respects outer-tower, inner-tower, and crystal unlock order', () => {
+  const locked = prepareStructureTargetWorld('outer');
+  const player = entity(locked.world, 'blue-hero-vanguard');
+  const lockedPosition = { ...player.position };
+  stepSimulation(locked.world, 1, { attackTargetId: locked.inner.id });
+  assert.equal(locked.inner.hp, locked.inner.maxHp);
+  assert.deepEqual(player.position, lockedPosition, 'locked inner tower must not pull the player forward');
+  assert.ok(!locked.world.events.some((event) => event.type === 'attack' && event.targetId === locked.inner.id));
+
+  const innerUnlocked = prepareStructureTargetWorld('inner');
+  stepSimulation(innerUnlocked.world, 1, { attackTargetId: innerUnlocked.inner.id });
+  assert.ok(innerUnlocked.inner.hp < innerUnlocked.inner.maxHp, 'inner tower becomes targetable after outer tower falls');
+  assert.ok(innerUnlocked.world.events.some((event) => event.type === 'attack' && event.targetId === innerUnlocked.inner.id));
+
+  const crystalExposed = prepareStructureTargetWorld('crystal');
+  stepSimulation(crystalExposed.world, 1, { attackTargetId: crystalExposed.crystal.id });
+  assert.equal(crystalExposed.crystal.alive, false, 'crystal becomes targetable after both towers fall');
+  assert.equal(crystalExposed.world.winner, 'blue');
+});

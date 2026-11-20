@@ -89,6 +89,12 @@ export function getAimingSkillHint(key: 'Q' | 'E' | 'R'): string {
   return `${key}：瞄准中，松开施放`;
 }
 
+export function getPlayerTargetHint(kind: 'move' | 'attack' | null, targetId?: string): string {
+  if (kind === 'move') return '正在前往目标点';
+  if (kind === 'attack') return targetId ? `已指定攻击目标：${targetId}` : '已指定攻击目标';
+  return '';
+}
+
 export interface SkillHudState {
   cooldownTicks: number;
   cooldownSeconds: number;
@@ -350,6 +356,7 @@ export interface HudController {
   setMuted(muted: boolean): void;
   setHint(key: string): void;
   setAimingSkill(key: 'Q' | 'E' | 'R' | null): void;
+  setPlayerTargetHint(kind: 'move' | 'attack' | null, targetId?: string): void;
   setShopFeedback(message: string): void;
 }
 
@@ -389,6 +396,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
   let latestWorld: Simulation | null = null;
   let selectedHeroRole: HeroRole = 'vanguard';
   let active = false;
+  let playerTargetHint: string | null = null;
 
   const resourcePanel = document.createElement('div');
   resourcePanel.style.cssText = 'display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:118px;padding:2px 5px;color:#c9d8e9;font-size:10px;';
@@ -425,7 +433,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
   actionHint.textContent = defaultActionHint;
 
   function setAimingSkill(key: 'Q' | 'E' | 'R' | null): void {
-    actionHint.textContent = key ? getAimingSkillHint(key) : defaultActionHint;
+    actionHint.textContent = key ? getAimingSkillHint(key) : playerTargetHint ?? defaultActionHint;
     for (const [skillKey, refs] of cooldownOverlays) {
       const aiming = skillKey === key;
       refs.slot.style.borderColor = aiming ? '#f0d28a' : '';
@@ -613,9 +621,13 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
       audioState.textContent = muted ? '音效：静音' : '音效：开启';
     },
     setHint(key) {
-      actionHint.textContent = getSkillHint(key) ?? defaultActionHint;
+      actionHint.textContent = getSkillHint(key) ?? playerTargetHint ?? defaultActionHint;
     },
     setAimingSkill,
+    setPlayerTargetHint(kind, targetId) {
+      playerTargetHint = getPlayerTargetHint(kind, targetId) || null;
+      actionHint.textContent = playerTargetHint ?? defaultActionHint;
+    },
     setShopFeedback(message) {
       shopFeedback.textContent = message;
     },

@@ -2,6 +2,107 @@
 import * as THREE from 'three';
 import type { Simulation } from './sim.ts';
 
+export interface ScreenPoint {
+  x: number;
+  y: number;
+}
+
+interface Vector3Like {
+  x: number;
+  y: number;
+  z: number;
+}
+
+const CAMERA_POSITION: Vector3Like = { x: 13, y: 15, z: 19 };
+const CAMERA_TARGET: Vector3Like = { x: 0, y: 0, z: 0 };
+const CAMERA_FOV_DEGREES = 52;
+const WORLD_UP: Vector3Like = { x: 0, y: 1, z: 0 };
+
+function dot3(a: Vector3Like, b: Vector3Like): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function cross3(a: Vector3Like, b: Vector3Like): Vector3Like {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function normalize3(vector: Vector3Like): Vector3Like | null {
+  const length = Math.hypot(vector.x, vector.y, vector.z);
+  if (!Number.isFinite(length) || length === 0) return null;
+  return { x: vector.x / length, y: vector.y / length, z: vector.z / length };
+}
+
+function getCameraBasis(): { forward: Vector3Like; right: Vector3Like; up: Vector3Like } | null {
+  const forward = normalize3({
+    x: CAMERA_TARGET.x - CAMERA_POSITION.x,
+    y: CAMERA_TARGET.y - CAMERA_POSITION.y,
+    z: CAMERA_TARGET.z - CAMERA_POSITION.z,
+  });
+  if (!forward) return null;
+  const right = normalize3(cross3(forward, WORLD_UP));
+  if (!right) return null;
+  const up = normalize3(cross3(right, forward));
+  if (!up) return null;
+  return { forward, right, up };
+}
+
+/** Pure screen-to-ground conversion. The caller supplies CSS-pixel coordinates and canvas dimensions. */
+export function screenToGroundPoint(
+  screenX: number,
+  screenY: number,
+  width: number,
+  height: number,
+): { x: number; y: number } | null {
+  if (![screenX, screenY, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+  const basis = getCameraBasis();
+  if (!basis) return null;
+  const aspect = width / height;
+  const tangent = Math.tan((CAMERA_FOV_DEGREES * Math.PI) / 360);
+  const ndcX = (screenX / width) * 2 - 1;
+  const ndcY = 1 - (screenY / height) * 2;
+  const direction = normalize3({
+    x: basis.forward.x + basis.right.x * ndcX * tangent * aspect + basis.up.x * ndcY * tangent,
+    y: basis.forward.y + basis.right.y * ndcX * tangent * aspect + basis.up.y * ndcY * tangent,
+    z: basis.forward.z + basis.right.z * ndcX * tangent * aspect + basis.up.z * ndcY * tangent,
+  });
+  if (!direction || direction.y >= -1e-8) return null;
+  const distance = -CAMERA_POSITION.y / direction.y;
+  if (!Number.isFinite(distance) || distance <= 0) return null;
+  return {
+    x: CAMERA_POSITION.x + direction.x * distance,
+    y: CAMERA_POSITION.z + direction.z * distance,
+  };
+}
+
+/** Pure projection of a simulation (x,y) point onto the canvas, where simulation y maps to world z. */
+export function projectSimPointToScreen(
+  position: { x: number; y: number },
+  width: number,
+  height: number,
+  worldHeight = 0.75,
+): ScreenPoint | null {
+  if (![position.x, position.y, width, height, worldHeight].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+  const basis = getCameraBasis();
+  if (!basis) return null;
+  const relative = {
+    x: position.x - CAMERA_POSITION.x,
+    y: worldHeight - CAMERA_POSITION.y,
+    z: position.y - CAMERA_POSITION.z,
+  };
+  const depth = dot3(relative, basis.forward);
+  if (depth <= 0) return null;
+  const aspect = width / height;
+  const tangent = Math.tan((CAMERA_FOV_DEGREES * Math.PI) / 360);
+  const ndcX = dot3(relative, basis.right) / (depth * tangent * aspect);
+  const ndcY = dot3(relative, basis.up) / (depth * tangent);
+  if (ndcX < -1 || ndcX > 1 || ndcY < -1 || ndcY > 1) return null;
+  return { x: ((ndcX + 1) * width) / 2, y: ((1 - ndcY) * height) / 2 };
+}
+
 export function createRenderScene(container: HTMLElement) {
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
@@ -234,6 +335,7 @@ export function createRenderScene(container: HTMLElement) {
   }
 
   return {
+    canvas: renderer.domElement,
     start() {
       if (running) return;
       running = true;

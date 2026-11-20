@@ -20,7 +20,7 @@ export type MonsterType = 'sentinel' | 'brute';
 export type EquipmentId = 'ember-blade' | 'gale-fang' | 'star-core' | 'moon-prism' | 'tide-ward' | 'bastion-plate';
 export type PlayerSkillKey = 'Q' | 'E' | 'R' | 'F' | 'G' | 'B';
 export type PlayerChannelKind = 'heal' | 'recall';
-export interface PlayerCommand { enabled?: boolean; moveX?: number; moveY?: number; attack?: boolean; skill?: PlayerSkillKey; }
+export interface PlayerCommand { enabled?: boolean; moveX?: number; moveY?: number; moveTarget?: Position; attackTargetId?: string | null; attack?: boolean; skill?: PlayerSkillKey; }
 export interface PlayerChannel { kind: PlayerChannelKind; totalTicks: number; remainingTicks: number; hpRestored: number; manaRestored: number; }
 export interface SkillDefinition { key: 'Q' | 'E' | 'R'; name: string; effect: 'damage' | 'area-damage' | 'heal' | 'dash-strike'; manaCost: number; cooldownTicks: number; range: number; radius?: number; multiplier?: number; healRatio?: number; }
 export type SimEventType =
@@ -1086,6 +1086,7 @@ function moveTowardsPoint(actor: SimEntity, target: Position, stopDistance = 0):
   const dx = target.x - actor.position.x;
   const dy = target.y - actor.position.y;
   const currentDistance = Math.sqrt(dx * dx + dy * dy);
+  if (currentDistance <= stopDistance + 1e-9) return;
   const desiredMovement = Math.max(0, currentDistance - stopDistance);
   const movement = Math.min(actor.moveSpeed * FIXED_STEP_SECONDS, desiredMovement);
   if (currentDistance === 0 || movement <= 0) return;
@@ -1372,7 +1373,31 @@ function applyPlayerCommand(world: Simulation, command?: PlayerCommand): void {
     hero.position.y += (moveY / moveLength) * distanceMoved;
     addEvent(world, { type: 'player-moved', sourceId: hero.id, amount: distanceMoved });
   }
-  if (command.attack) {
+
+  const specifiedTarget = command.attackTargetId
+    ? playerEnemyTargets(world, hero).find((entity) =>
+      entity.id === command.attackTargetId && entity.team !== 'neutral' &&
+      (entity.kind === 'hero' || entity.kind === 'minion' || entity.kind === 'tower' || entity.kind === 'crystal')
+    ) ?? null
+    : null;
+
+  if (specifiedTarget) {
+    const targetDistance = distance(hero.position, specifiedTarget.position);
+    if (targetDistance <= hero.attackRange) {
+      if (hero.cooldownRemaining === 0) {
+        if (hero.channel) cancelPlayerChannel(world, hero, 'attack');
+        performAttack(world, hero, specifiedTarget);
+      }
+    } else if (!moving) {
+      if (hero.channel) cancelPlayerChannel(world, hero, 'move');
+      moveTowards(hero, specifiedTarget);
+    }
+  } else if (!moving && command.moveTarget) {
+    if (hero.channel) cancelPlayerChannel(world, hero, 'move');
+    moveTowardsPoint(hero, command.moveTarget, 0.3);
+  }
+
+  if (command.attack && !specifiedTarget) {
     if (hero.channel) cancelPlayerChannel(world, hero, 'attack');
     if (hero.cooldownRemaining === 0) {
       const target = nearestEntity(hero, playerEnemyTargets(world, hero), hero.attackRange);
