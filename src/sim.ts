@@ -21,7 +21,7 @@ export type EquipmentId = 'ember-blade' | 'gale-fang' | 'star-core' | 'moon-pris
 export type PlayerSkillKey = 'Q' | 'E' | 'R' | 'F' | 'G' | 'B';
 export type PlayerChannelKind = 'heal' | 'recall';
 export interface PlayerCommand { enabled?: boolean; moveX?: number; moveY?: number; attack?: boolean; skill?: PlayerSkillKey; }
-export interface PlayerChannel { kind: PlayerChannelKind; totalTicks: number; remainingTicks: number; }
+export interface PlayerChannel { kind: PlayerChannelKind; totalTicks: number; remainingTicks: number; hpRestored: number; manaRestored: number; }
 export interface SkillDefinition { key: 'Q' | 'E' | 'R'; name: string; effect: 'damage' | 'area-damage' | 'heal' | 'dash-strike'; manaCost: number; cooldownTicks: number; range: number; radius?: number; multiplier?: number; healRatio?: number; }
 export type SimEventType =
   | 'wave-spawned'
@@ -39,6 +39,7 @@ export type SimEventType =
   | 'ai-state-changed'
   | 'player-moved'
   | 'player-skill'
+  | 'player-channel-progress'
   | 'player-channel-started'
   | 'player-channel-cancelled'
   | 'player-channel-completed';
@@ -296,6 +297,7 @@ const FLASH_DISTANCE = 5;
 const FLASH_COOLDOWN_TICKS = 110 * TICKS_PER_SECOND;
 const CHANNEL_TICKS = 5 * TICKS_PER_SECOND;
 const CHANNEL_COOLDOWN_TICKS = 60 * TICKS_PER_SECOND;
+const RECALL_COOLDOWN_TICKS = TICKS_PER_SECOND;
 
 const HERO_LANE_OFFSETS = [-2, -1, 0, 1, 2] as const;
 const HERO_RESPAWN_TICKS = 120;
@@ -1344,8 +1346,8 @@ function startPlayerChannel(world: Simulation, hero: SimEntity, kind: PlayerChan
   if (!hero.skillCooldowns || hero.channel) return false;
   const key: 'G' | 'B' = kind === 'heal' ? 'G' : 'B';
   if (hero.skillCooldowns[key] > 0) return false;
-  hero.skillCooldowns[key] = CHANNEL_COOLDOWN_TICKS;
-  hero.channel = { kind, totalTicks: CHANNEL_TICKS, remainingTicks: CHANNEL_TICKS };
+  hero.skillCooldowns[key] = kind === 'heal' ? CHANNEL_COOLDOWN_TICKS : RECALL_COOLDOWN_TICKS;
+  hero.channel = { kind, totalTicks: CHANNEL_TICKS, remainingTicks: CHANNEL_TICKS, hpRestored: 0, manaRestored: 0 };
   addEvent(world, { type: 'player-channel-started', sourceId: hero.id, detail: key + ':' + kind, amount: CHANNEL_TICKS });
   return true;
 }
@@ -1392,14 +1394,40 @@ function advancePlayerChannel(world: Simulation): void {
   const channel = hero?.channel;
   if (!hero || !hero.alive || !channel) return;
   channel.remainingTicks = Math.max(0, channel.remainingTicks - 1);
-  if (channel.remainingTicks > 0) return;
+
   if (channel.kind === 'heal') {
-    const hpRestored = Math.min(hero.maxHp - hero.hp, Math.round(hero.maxHp * 0.3));
-    const manaRestored = Math.min((hero.maxMana ?? 0) - (hero.mana ?? 0), Math.round((hero.maxMana ?? 0) * 0.3));
+    const elapsedTicks = channel.totalTicks - channel.remainingTicks;
+    const totalHpTarget = Math.round(hero.maxHp * 0.3);
+    const totalManaTarget = Math.round((hero.maxMana ?? 0) * 0.3);
+    const hpTarget = elapsedTicks === channel.totalTicks
+      ? totalHpTarget
+      : totalHpTarget * elapsedTicks / channel.totalTicks;
+    const manaTarget = elapsedTicks === channel.totalTicks
+      ? totalManaTarget
+      : totalManaTarget * elapsedTicks / channel.totalTicks;
+    const hpDelta = Math.max(0, hpTarget - channel.hpRestored);
+    const manaDelta = Math.max(0, manaTarget - channel.manaRestored);
+    const hpRestored = Math.min(Math.max(0, hero.maxHp - hero.hp), hpDelta);
+    const manaRestored = Math.min(Math.max(0, (hero.maxMana ?? 0) - (hero.mana ?? 0)), manaDelta);
     hero.hp += hpRestored;
     hero.mana = (hero.mana ?? 0) + manaRestored;
-    addEvent(world, { type: 'player-channel-completed', sourceId: hero.id, amount: hpRestored, detail: 'G:heal;mana-restored=' + manaRestored });
+    channel.hpRestored += hpRestored;
+    channel.manaRestored += manaRestored;
+    addEvent(world, {
+      type: 'player-channel-progress',
+      sourceId: hero.id,
+      amount: hpRestored,
+      detail: 'G:heal;mana-restored=' + manaRestored + ';hp-total=' + channel.hpRestored + ';mana-total=' + channel.manaRestored,
+    });
+    if (channel.remainingTicks > 0) return;
+    addEvent(world, {
+      type: 'player-channel-completed',
+      sourceId: hero.id,
+      amount: channel.hpRestored,
+      detail: 'G:heal;mana-restored=' + channel.manaRestored,
+    });
   } else {
+    if (channel.remainingTicks > 0) return;
     const home = world.entities.find((entity) => entity.kind === 'crystal' && entity.team === hero.team);
     if (home) hero.position = { ...home.position };
     addEvent(world, { type: 'player-channel-completed', sourceId: hero.id, amount: CHANNEL_TICKS, detail: 'B:recall' });

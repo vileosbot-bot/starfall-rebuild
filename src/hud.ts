@@ -85,6 +85,10 @@ export function getSkillHint(key: string): string | null {
   return SKILL_HINTS.find((item) => item.key.toLowerCase() === key.toLowerCase())?.text ?? null;
 }
 
+export function getAimingSkillHint(key: 'Q' | 'E' | 'R'): string {
+  return `${key}：瞄准中，松开施放`;
+}
+
 export interface SkillHudState {
   cooldownTicks: number;
   cooldownSeconds: number;
@@ -205,6 +209,8 @@ export interface ChannelHudState {
   label: string;
   progress: number;
   remainingSeconds: number;
+  hpRestored: number;
+  manaRestored: number;
 }
 
 export function getChannelHudState(hero: Pick<SimEntity, 'channel'>): ChannelHudState | null {
@@ -214,7 +220,17 @@ export function getChannelHudState(hero: Pick<SimEntity, 'channel'>): ChannelHud
     label: channel.kind === 'heal' ? '疗伤' : '回城',
     progress: (channel.totalTicks - channel.remainingTicks) / channel.totalTicks,
     remainingSeconds: channel.remainingTicks * FIXED_STEP_SECONDS,
+    hpRestored: channel.hpRestored ?? 0,
+    manaRestored: channel.manaRestored ?? 0,
   };
+}
+
+export function formatChannelHudLabel(state: ChannelHudState): string {
+  const elapsed = (5 - state.remainingSeconds).toFixed(1);
+  if (state.label === '疗伤') {
+    return `疗伤 ${elapsed}/5.0s · HP+${state.hpRestored.toFixed(1)} MP+${state.manaRestored.toFixed(1)}`;
+  }
+  return `${state.label}引导 ${elapsed}/5.0s`;
 }
 
 export interface ScoreboardCombatStats {
@@ -333,6 +349,7 @@ export interface HudController {
   setPaused(paused: boolean): void;
   setMuted(muted: boolean): void;
   setHint(key: string): void;
+  setAimingSkill(key: 'Q' | 'E' | 'R' | null): void;
   setShopFeedback(message: string): void;
 }
 
@@ -404,7 +421,17 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
     cooldownOverlays.set(key, { slot, overlay });
   }
 
-  actionHint.textContent = 'WASD/方向键移动 · 空格攻击 · Q/E/R技能 · F闪现 · G疗伤 · B回城';
+  const defaultActionHint = 'WASD/方向键移动 · 空格攻击 · Q/E/R技能 · F闪现 · G疗伤 · B回城';
+  actionHint.textContent = defaultActionHint;
+
+  function setAimingSkill(key: 'Q' | 'E' | 'R' | null): void {
+    actionHint.textContent = key ? getAimingSkillHint(key) : defaultActionHint;
+    for (const [skillKey, refs] of cooldownOverlays) {
+      const aiming = skillKey === key;
+      refs.slot.style.borderColor = aiming ? '#f0d28a' : '';
+      refs.slot.style.boxShadow = aiming ? '0 0 0 1px rgba(240,210,138,.55)' : '';
+    }
+  }
 
   for (const item of Object.values(EQUIPMENT)) {
     const row = document.createElement('div');
@@ -512,9 +539,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
       refs.slot.style.opacity = state.manaInsufficient ? '0.42' : '1';
     }
     const channelState = selectedHero ? getChannelHudState(selectedHero) : null;
-    channelLabel.textContent = channelState
-      ? channelState.label + '引导 ' + (5 - channelState.remainingSeconds).toFixed(1) + '/5.0s'
-      : '';
+    channelLabel.textContent = channelState ? formatChannelHudLabel(channelState) : '';
     channelTrack.hidden = !channelState;
     channelFill.style.width = (channelState ? channelState.progress * 100 : 0) + '%';
 
@@ -532,6 +557,7 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
     hudRoot.hidden = !value;
     if (!value) {
       latestWorld = null;
+      setAimingSkill(null);
       gameTime.textContent = '00:00';
       blueScore.textContent = '0';
       redScore.textContent = '0';
@@ -587,8 +613,9 @@ export function createHud(root: HTMLElement, onPurchase?: (success: boolean) => 
       audioState.textContent = muted ? '音效：静音' : '音效：开启';
     },
     setHint(key) {
-      actionHint.textContent = getSkillHint(key) ?? 'WASD/方向键移动 · 空格攻击 · Q/E/R技能 · F闪现 · G疗伤 · B回城';
+      actionHint.textContent = getSkillHint(key) ?? defaultActionHint;
     },
+    setAimingSkill,
     setShopFeedback(message) {
       shopFeedback.textContent = message;
     },

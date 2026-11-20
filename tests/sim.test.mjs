@@ -532,6 +532,56 @@ test('all five roles execute their three Q/E/R skills with locked parameters', (
   }
 });
 
+test('Q/E/R press without release or after cancellation has no effect; release dispatches the cast', () => {
+  for (const key of ['Q', 'E', 'R']) {
+    const makeWorld = () => {
+      const world = createSimulation(108, 'arcanist');
+      const hero = entity(world, 'blue-hero-arcanist');
+      const target = entity(world, 'red-hero-vanguard');
+      for (const unit of world.entities) {
+        if (unit.id === hero.id || unit.id === target.id) continue;
+        unit.alive = false;
+        unit.hp = 0;
+        unit.respawnTicks = 0;
+      }
+      hero.position = { x: 0, y: 0 };
+      hero.mana = 300;
+      hero.manaRegenPerSecond = 0;
+      hero.moveSpeed = 0;
+      target.position = { x: 1, y: 0 };
+      target.hp = target.maxHp;
+      target.gold = 0;
+      target.moveSpeed = 0;
+      target.attackRange = 0;
+      target.attackDamage = 0;
+      target.attackCooldownTicks = 9999;
+      target.cooldownRemaining = 9999;
+      return { world, hero, target };
+    };
+
+    const pressed = makeWorld();
+    const targetHpBeforePress = pressed.target.hp;
+    stepSimulation(pressed.world, 1); // keydown enters aim; no PlayerCommand is dispatched
+    assert.equal(pressed.target.hp, targetHpBeforePress, key + ' press must not deal damage');
+    assert.equal(pressed.hero.mana, 300, key + ' press must not spend mana');
+    assert.equal(pressed.hero.skillCooldowns[key], 0, key + ' press must not start cooldown');
+
+    stepSimulation(pressed.world, 1, { skill: key }); // keyup dispatches the pending skill
+    assert.ok(pressed.target.hp < targetHpBeforePress, key + ' release must cast');
+    assert.equal(pressed.hero.mana, 300 - HERO_SKILLS.arcanist[key].manaCost);
+    assert.equal(pressed.hero.skillCooldowns[key], HERO_SKILLS.arcanist[key].cooldownTicks);
+
+    const cancelled = makeWorld();
+    const targetHpBeforeCancel = cancelled.target.hp;
+    stepSimulation(cancelled.world, 1); // keydown enters aim
+    stepSimulation(cancelled.world, 1); // Esc cancels; keyup must not dispatch a command
+    assert.equal(cancelled.target.hp, targetHpBeforeCancel, key + ' cancellation must not deal damage');
+    assert.equal(cancelled.hero.mana, 300, key + ' cancellation must not spend mana');
+    assert.equal(cancelled.hero.skillCooldowns[key], 0, key + ' cancellation must not start cooldown');
+    assert.ok(!cancelled.world.events.some((event) => event.type === 'player-skill' && event.sourceId === cancelled.hero.id));
+  }
+});
+
 test('F flashes exactly five units and starts a 110-second cooldown', () => {
   const world = createSimulation(109, 'ranger');
   const hero = entity(world, 'blue-hero-ranger');
@@ -545,18 +595,87 @@ test('F flashes exactly five units and starts a 110-second cooldown', () => {
   assert.equal(hero.position.x, 5);
 });
 
-test('G completes after five seconds and restores 30 percent of maximum health and mana', () => {
+test('G restores 30 percent of maximum health and mana continuously across all 100 channel ticks', () => {
   const world = createSimulation(113, 'guardian');
   const hero = entity(world, 'blue-hero-guardian');
-  hero.hp = hero.maxHp - 400;
+  const startHp = hero.maxHp - 400;
+  hero.hp = startHp;
   hero.mana = 100;
   hero.manaRegenPerSecond = 0;
-  stepSimulation(world, 100, { skill: 'G' });
-  assert.equal(hero.hp, hero.maxHp - 94);
-  assert.equal(hero.mana, 190);
+
+  stepSimulation(world, 1, { skill: 'G' });
+  assert.equal(hero.skillCooldowns.G, 60 * 20, 'G cooldown starts when the channel starts');
+  assert.ok(hero.hp > startHp, 'the first channel tick restores health');
+  assert.ok(hero.mana > 100, 'the first channel tick restores mana');
+  assert.equal(hero.channel.remainingTicks, 99);
+  const firstProgress = world.events.find((event) => event.type === 'player-channel-progress');
+  assert.ok(firstProgress);
+  assert.ok(firstProgress.amount > 0);
+
+  stepSimulation(world, 49);
+  assert.ok(Math.abs(hero.channel.hpRestored - 153) <= 1);
+  assert.ok(Math.abs(hero.channel.manaRestored - 45) <= 1);
+  assert.equal(world.events.filter((event) => event.type === 'player-channel-progress').length, 50);
+
+  stepSimulation(world, 50);
+  assert.ok(Math.abs(hero.hp - (startHp + 306)) <= 1);
+  assert.ok(Math.abs(hero.mana - 190) <= 1);
   assert.equal(hero.channel, null);
-  assert.ok(world.events.some((event) => event.type === 'player-channel-completed' && event.detail?.startsWith('G:heal')));
+  const progressEvents = world.events.filter((event) => event.type === 'player-channel-progress');
+  assert.equal(progressEvents.length, 100);
+  assert.ok(progressEvents.every((event) => event.amount > 0), 'every tick records health recovery');
+  assert.ok(progressEvents.every((event) => Math.abs(event.amount - 3.06) < 1e-9), 'health recovery is evenly distributed per tick');
+  assert.ok(progressEvents.every((event) => {
+    const manaDelta = Number(event.detail.match(/mana-restored=([0-9.]+)/)?.[1]);
+    return Math.abs(manaDelta - 0.9) < 1e-9;
+  }), 'mana recovery is evenly distributed per tick');
+  const completion = world.events.find((event) => event.type === 'player-channel-completed' && event.detail?.startsWith('G:heal'));
+  assert.ok(completion);
+  assert.ok(Math.abs(completion.amount - 306) <= 1);
+  assert.ok(Math.abs(Number(completion.detail.match(/mana-restored=([0-9.]+)/)?.[1]) - 90) <= 1);
   assert.equal(hero.skillCooldowns.G, 60 * 20 - 99);
+});
+
+test('interrupting G after 2.5 seconds keeps only the half-channel recovery already applied', () => {
+  const world = createSimulation(114, 'guardian');
+  const hero = entity(world, 'blue-hero-guardian');
+  const startHp = hero.maxHp - 400;
+  hero.hp = startHp;
+  hero.mana = 100;
+  hero.manaRegenPerSecond = 0;
+  stepSimulation(world, 1, { skill: 'G' });
+  stepSimulation(world, 49);
+
+  assert.equal(hero.channel.remainingTicks, 50);
+  assert.ok(Math.abs(hero.channel.hpRestored - 153) <= 1);
+  assert.ok(Math.abs(hero.channel.manaRestored - 45) <= 1);
+  const progressCountAtInterrupt = world.events.filter((event) => event.type === 'player-channel-progress').length;
+  assert.equal(progressCountAtInterrupt, 50);
+
+  stepSimulation(world, 1, { moveX: 1 });
+  assert.equal(hero.channel, null);
+  assert.ok(Math.abs(hero.hp - (startHp + 153)) <= 1);
+  assert.ok(Math.abs(hero.mana - 145) <= 1);
+  assert.equal(world.events.filter((event) => event.type === 'player-channel-progress').length, 50);
+  assert.ok(!world.events.some((event) => event.type === 'player-channel-completed' && event.detail?.startsWith('G:heal')));
+  assert.ok(world.events.some((event) => event.type === 'player-channel-cancelled' && event.detail === 'heal:move'));
+});
+
+test('G cooldown remains 60 seconds from channel start: unavailable one second after completion and available by 60 seconds after', () => {
+  const world = createSimulation(115, 'guardian');
+  const hero = entity(world, 'blue-hero-guardian');
+  hero.hp = hero.maxHp - 100;
+  hero.manaRegenPerSecond = 0;
+  stepSimulation(world, 100, { skill: 'G' });
+  assert.equal(hero.channel, null);
+  assert.ok(hero.skillCooldowns.G > 0);
+
+  stepSimulation(world, 20);
+  assert.ok(hero.skillCooldowns.G > 0, 'G is still cooling down one second after channel completion');
+  stepSimulation(world, 1180);
+  assert.equal(hero.skillCooldowns.G, 0, 'G cooldown has elapsed 60 seconds after channel completion');
+  stepSimulation(world, 1, { skill: 'G' });
+  assert.equal(hero.channel?.kind, 'heal');
 });
 
 test('B completes after five seconds and returns the player hero to the home crystal', () => {
@@ -571,11 +690,20 @@ test('B completes after five seconds and returns the player hero to the home cry
     }
     if (unit.kind === 'monster') unit.position = { x: 50, y: 50 };
   }
-  stepSimulation(world, 100, { skill: 'B' });
+  stepSimulation(world, 1, { skill: 'B' });
+  assert.equal(hero.skillCooldowns.B, 20, 'B cooldown is exactly one second at channel start');
+  stepSimulation(world, 19);
+  assert.equal(hero.skillCooldowns.B, 1);
+  stepSimulation(world, 1);
+  assert.equal(hero.skillCooldowns.B, 0);
+  stepSimulation(world, 79);
   assert.deepEqual(hero.position, entity(world, 'blue-crystal').position);
   assert.equal(hero.channel, null);
-  assert.equal(hero.skillCooldowns.B, 60 * 20 - 99);
+  assert.equal(hero.skillCooldowns.B, 0, 'the one-second B cooldown expires during the five-second channel');
   assert.ok(world.events.some((event) => event.type === 'player-channel-completed' && event.detail === 'B:recall'));
+  stepSimulation(world, 20);
+  stepSimulation(world, 1, { skill: 'B' });
+  assert.equal(hero.channel?.kind, 'recall', 'B can be started again one second after the previous channel ends');
 });
 
 test('cooldown and insufficient mana prevent repeated Q casts without spending more mana', () => {

@@ -12,7 +12,9 @@ import {
   HERO_ROLES,
   SKILL_HINTS,
   getSkillHudState,
+  getAimingSkillHint,
   getChannelHudState,
+  formatChannelHudLabel,
   getMinimapMarkers,
   getScoreboardCombatStats,
 } from '../src/hud.ts';
@@ -99,17 +101,44 @@ test('skill HUD reports cooldown seconds and mana insufficiency', () => {
   assert.equal(getSkillHudState(hero, 'arcanist', 'F').manaInsufficient, false);
 });
 
-test('channel HUD exposes progress and remaining time for G and B', () => {
-  assert.deepEqual(getChannelHudState({ channel: { kind: 'recall', totalTicks: 100, remainingTicks: 40 } }), {
+
+test('Q/E/R aiming prompts explicitly say release to cast', () => {
+  assert.equal(getAimingSkillHint('Q'), 'Q：瞄准中，松开施放');
+  assert.equal(getAimingSkillHint('E'), 'E：瞄准中，松开施放');
+  assert.equal(getAimingSkillHint('R'), 'R：瞄准中，松开施放');
+});
+
+test('main input wiring starts Q/E/R aim on keydown, dispatches on keyup, and clears aim on cancel/death', async () => {
+  const source = await readFile(new URL('../src/main.ts', import.meta.url), 'utf8');
+  assert.match(source, /if \(event\.repeat \|\| !session\.world\) return;/);
+  assert.match(source, /if \(aimingSkill !== null\) clearAimingSkill\(\);[\s\S]*?paused = !paused;/);
+  assert.match(source, /if \(\['q', 'e', 'r'\]\.includes\(key\)\) \{[\s\S]*?aimingSkill = key\.toUpperCase\(\)[\s\S]*?hud\.setAimingSkill\(aimingSkill\);[\s\S]*?return;/);
+  const aimedKeydown = source.match(/if \(\['q', 'e', 'r'\]\.includes\(key\)\) \{([\s\S]*?)\n  \}\n  if \(\['f', 'g', 'b'\]/);
+  assert.ok(aimedKeydown);
+  assert.doesNotMatch(aimedKeydown[1], /pendingSkill\s*=/, 'keydown only enters aim and never queues a cast');
+  assert.match(source, /function onKeyUp\(event: KeyboardEvent\): void \{[\s\S]*?if \(aimingSkill !== skill\) return;[\s\S]*?if \(canRelease\) pendingSkill = skill;/);
+  assert.match(source, /function clearPlayerInput\(\): void \{[\s\S]*?clearAimingSkill\(\);/);
+  assert.match(source, /if \(paused\) clearPlayerInput\(\);/);
+  assert.match(source, /if \(!playerHero\?\.alive\) clearPlayerInput\(\);/);
+});
+
+test('channel HUD exposes progress, remaining time, and the same cumulative G recovery ledger', () => {
+  assert.deepEqual(getChannelHudState({ channel: { kind: 'recall', totalTicks: 100, remainingTicks: 40, hpRestored: 0, manaRestored: 0 } }), {
     label: '回城',
     progress: 0.6,
     remainingSeconds: 2,
+    hpRestored: 0,
+    manaRestored: 0,
   });
-  assert.deepEqual(getChannelHudState({ channel: { kind: 'heal', totalTicks: 100, remainingTicks: 90 } }), {
+  assert.deepEqual(getChannelHudState({ channel: { kind: 'heal', totalTicks: 100, remainingTicks: 50, hpRestored: 153, manaRestored: 45 } }), {
     label: '疗伤',
-    progress: 0.1,
-    remainingSeconds: 4.5,
+    progress: 0.5,
+    remainingSeconds: 2.5,
+    hpRestored: 153,
+    manaRestored: 45,
   });
+  assert.equal(formatChannelHudLabel({ label: '疗伤', progress: 0.5, remainingSeconds: 2.5, hpRestored: 153, manaRestored: 45 }), '疗伤 2.5/5.0s · HP+153.0 MP+45.0');
+  assert.equal(formatChannelHudLabel({ label: '回城', progress: 0.4, remainingSeconds: 3, hpRestored: 0, manaRestored: 0 }), '回城引导 2.0/5.0s');
   assert.equal(getChannelHudState({ channel: null }), null);
 });
 

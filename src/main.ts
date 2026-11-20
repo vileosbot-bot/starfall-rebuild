@@ -42,11 +42,24 @@ let animationFrame = 0;
 const heldKeys = new Set<string>();
 let pendingAttack = false;
 let pendingSkill: PlayerSkillKey | null = null;
+let aimingSkill: 'Q' | 'E' | 'R' | null = null;
+
+function clearAimingSkill(): void {
+  aimingSkill = null;
+  hud.setAimingSkill(null);
+}
 
 function clearPlayerInput(): void {
   heldKeys.clear();
   pendingAttack = false;
   pendingSkill = null;
+  clearAimingSkill();
+}
+
+function isPlayerHeroAlive(world: Simulation | null = session.world): boolean {
+  if (!world || !session.selectedRole) return false;
+  const playerHeroId = getPlayerHeroId(session.selectedRole);
+  return world.entities.some((entity) => entity.id === playerHeroId && entity.kind === 'hero' && entity.alive);
 }
 
 function consumePlayerCommand(): PlayerCommand {
@@ -121,6 +134,7 @@ function onKeyDown(event: KeyboardEvent): void {
   if (event.repeat || !session.world) return;
   const key = event.key.toLowerCase();
   if (key === 'escape') {
+    if (aimingSkill !== null) clearAimingSkill();
     paused = !paused;
     if (paused) clearPlayerInput();
     hud.setPaused(paused);
@@ -153,18 +167,38 @@ function onKeyDown(event: KeyboardEvent): void {
     heldKeys.add(key);
     pendingAttack = true;
     event.preventDefault();
-    hud.setHint('Space');
+    if (aimingSkill === null) hud.setHint('Space');
     return;
   }
-  if (['q', 'e', 'r', 'f', 'g', 'b'].includes(key)) {
+  if (['q', 'e', 'r'].includes(key)) {
+    if (!isPlayerHeroAlive(session.world)) {
+      clearAimingSkill();
+      return;
+    }
+    if (aimingSkill === null) {
+      aimingSkill = key.toUpperCase() as 'Q' | 'E' | 'R';
+      hud.setAimingSkill(aimingSkill);
+    }
+    event.preventDefault();
+    return;
+  }
+  if (['f', 'g', 'b'].includes(key)) {
     pendingSkill = key.toUpperCase() as PlayerSkillKey;
     event.preventDefault();
-    hud.setHint(key.toUpperCase());
+    if (aimingSkill === null) hud.setHint(key.toUpperCase());
   }
 }
 
 function onKeyUp(event: KeyboardEvent): void {
-  heldKeys.delete(event.key.toLowerCase());
+  const key = event.key.toLowerCase();
+  heldKeys.delete(key);
+  if (!['q', 'e', 'r'].includes(key)) return;
+  const skill = key.toUpperCase() as 'Q' | 'E' | 'R';
+  if (aimingSkill !== skill) return;
+  const world = session.world;
+  const canRelease = Boolean(world && !paused && world.winner === null && isPlayerHeroAlive(world));
+  clearAimingSkill();
+  if (canRelease) pendingSkill = skill;
 }
 
 
