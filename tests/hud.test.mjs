@@ -151,7 +151,7 @@ test('main input wiring starts Q/E/R aim on keydown, dispatches on keyup, and cl
   const aimedKeydown = source.match(/if \(\['q', 'e', 'r'\]\.includes\(key\)\) \{([\s\S]*?)\n  \}\n  if \(\['f', 'g', 'b'\]/);
   assert.ok(aimedKeydown);
   assert.doesNotMatch(aimedKeydown[1], /pendingSkill\s*=/, 'keydown only enters aim and never queues a cast');
-  assert.match(source, /function onKeyUp\(event: KeyboardEvent\): void \{[\s\S]*?if \(aimingSkill !== skill\) return;[\s\S]*?if \(canRelease\) pendingSkill = skill;/);
+  assert.match(source, /function onKeyUp\(event: KeyboardEvent\): void \{[\s\S]*?if \(aimingSkill !== skill\) return;[\s\S]*?if \(canRelease\) \{\s*pendingSkill = skill;\s*pendingAimPosition = releasedAimPosition;\s*\} else \{\s*pendingAimPosition = null;\s*\}/);
   assert.match(source, /function clearPlayerInput\(\): void \{[\s\S]*?clearAimingSkill\(\);/);
   assert.match(source, /if \(!playerHero\?\.alive \|\| world\.winner !== null\) \{\s*clearPlayerInput\(\);/);
 });

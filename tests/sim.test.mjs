@@ -1956,7 +1956,7 @@ test('opening match settings freezes the fixed-step loop and Continue resumes it
   const pausedSignals = [];
   const runtime = {
     session: { world: simulation, selectedRole: null },
-    renderScene: { syncSimulation() {} },
+    renderScene: { syncSimulation() {}, setSkillAimPreview() {} },
     window: { requestAnimationFrame() { return 1; } },
     hud: {
       update() {},
@@ -1969,6 +1969,9 @@ test('opening match settings freezes the fixed-step loop and Continue resumes it
     settingsValues: { masterVolume: 80, sfxVolume: 90 },
     settingsOpen: false,
     settingsMode: 'menu',
+    aimingSkill: null,
+    playerAimPosition: null,
+    clearAimingSkill() {},
     paused: false,
     shopOpen: false,
     scoreboardOpen: false,
@@ -2029,6 +2032,7 @@ test('aimed single-target skills hit the cursor-nearest legal enemy and reject e
     hero.critChance = 0;
     for (const target of [near, far]) {
       target.hp = target.maxHp;
+      target.gold = 0;
       target.armor = 0;
       target.resistance = 0;
       target.moveSpeed = 0;
@@ -2080,6 +2084,7 @@ test('aimed area skills use the cursor point as their radius center', () => {
   hero.critChance = 0;
   for (const target of [inside, outside]) {
     target.hp = target.maxHp;
+    target.gold = 0;
     target.armor = 0;
     target.resistance = 0;
     target.moveSpeed = 0;
@@ -2119,6 +2124,7 @@ test('aimed dash-strike selects the target nearest to the cursor within skill ra
   hero.critChance = 0;
   for (const target of [near, far]) {
     target.hp = target.maxHp;
+    target.gold = 0;
     target.armor = 0;
     target.resistance = 0;
     target.moveSpeed = 0;
