@@ -2057,7 +2057,7 @@ test('aimed single-target skills hit the cursor-nearest legal enemy and reject e
 
   const empty = makeWorld();
   const emptyTargetHp = empty.near.hp;
-  stepSimulation(empty.world, 1, { skill: 'Q', aimPosition: { x: 6.5, y: 0 } });
+  stepSimulation(empty.world, 1, { skill: 'Q', aimPosition: { x: 6.6, y: 0 } });
   assert.equal(empty.near.hp, emptyTargetHp);
   assert.equal(empty.hero.mana, 300, 'empty aim point does not spend mana');
   assert.equal(empty.hero.skillCooldowns.Q, 0, 'empty aim point does not start cooldown');
