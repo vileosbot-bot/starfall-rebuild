@@ -1,0 +1,56 @@
+check exit=0
+✔ clicking a raised hero body selects it without requiring a click at its feet (1.360939ms)
+✔ hidden, allied and dead entities cannot be picked or acquired by touch aim (0.376213ms)
+✔ touch aim resolves nearby visible target and returns nothing when out of reach (0.199008ms)
+✔ turning off recommended purchases changes only the player, while bots still equip themselves (845.892293ms)
+✔ audit: four items carry the original names and prices, ids and effects untouched (2.298353ms)
+✔ audit: every hero starts with 50 gold (4.463296ms)
+✔ audit: hero base stats and per-level growth match the original table (0.478977ms)
+✔ objective banner follows the match state (30.525398ms)
+✔ death lines name the killer, class and level; first blood is flagged (2.450201ms)
+✔ camp timers are exposed read-only for the minimap (1:56 / 4:26 at 4 seconds) (12.91059ms)
+✔ minimap is an unrotated square: map corners map to canvas corners and back (0.370384ms)
+✔ pacing: all-AI and idle-player matches end by crystal destruction inside 12-20 minutes (19137.672521ms)
+✔ review: structures respect each lane and one broken high ground unlocks core (8.562667ms)
+✔ review: arbitrary elapsed time cannot declare a winner (2.598613ms)
+✔ review: damaging recall cancels it; uninterrupted recall reaches home (37.268159ms)
+✔ review: keyboard movement cancels recall without teleporting (3.97876ms)
+✔ review: dead heroes reject all combat and movement commands (1.778795ms)
+✔ review: empty aimed assassination does not spend mana or start cooldown (6.542101ms)
+✔ review: purchases honor budget, six slots, refunds and boot replacement (1.494058ms)
+✔ review: slow reduces direct player displacement (4.613591ms)
+✔ review: fixed input and seed are deterministic over a meaningful 30s combat window (805.696739ms)
+✔ complete initial roster and exact map structure (6.957593ms)
+✔ each lane unlocks its own tower chain; other lanes remain protected (2.765844ms)
+✔ destroying one complete lane unlocks the core and only core death ends match (1.78225ms)
+✔ armor mitigation uses reference factor 600 and true damage bypasses it (0.899447ms)
+✔ no-minion structure defense reduces damage by sixty percent (2.054507ms)
+✔ boot upgrades credit old sale value and do not consume an extra slot (1.209552ms)
+✔ shop rejects insufficient gold and full inventory, sell returns sixty percent (0.978626ms)
+✔ first skill consumes mana once and respects cooldown; locked skills consume nothing (1.571995ms)
+✔ empty target-ultimate aim never spends mana or cooldown (0.565067ms)
+✔ target-ultimate validates aim and damages a valid hero (2.32287ms)
+✔ level progression learns the ultimate at level four (1.078165ms)
+✔ recall completes after five seconds and movement cancels its channel (19.964347ms)
+✔ damage and attack orders cancel recall (1.257224ms)
+✔ dead hero cannot cast, move, heal or flash, but can buy and respawns (21.27492ms)
+✔ slow affects normal heroes and direct movement collides with terrain (6.941819ms)
+✔ waves start at ten seconds and repeat every thirty seconds (235.80267ms)
+✔ paused match freezes gold, movement and cooldowns (0.986989ms)
+✔ seeded full simulation repeats and keeps finite bounded state (3825.571686ms)
+✔ all fifteen hero abilities execute without nonfinite state (101.663275ms)
+✔ multi-touch: joystick held + skill/flash/heal/recall taps work together (30301.688997ms)
+✔ visual regression: title, hero select, 3D battlefield, HUD, minimap, death screen, 2D fallback (85796.75525ms)
+ℹ title: mean diff 0.022, changed pixels 0.00%
+ℹ select: mean diff 0, changed pixels 0.00%
+ℹ spawn: mean diff 0, changed pixels 0.00%
+ℹ river: mean diff 0.05, changed pixels 0.00%
+ℹ dead: mean diff 0.143, changed pixels 0.00%
+ℹ tests 42
+ℹ suites 0
+ℹ pass 42
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 142169.851139

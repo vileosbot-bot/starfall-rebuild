@@ -1,0 +1,8 @@
+{
+  "name": "starfall-web-rebuild",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent browser-local reconstruction of the Starfall MOBA experience",
+  "scripts": {"test":"node --test --test-concurrency=1 tests/*.test.mjs","check":"node --check dist/app.js && node --check dist/sim.js && node --check dist/render.js && node --check dist/render3d.js && node --check dist/glkit.js && node --check dist/models3d.js && node --check dist/minimap.js && node --check dist/hud.js && node --check dist/touch.js && node --check dist/portraits.js && node --check dist/audio.js && node --check dist/controls.js","sim":"node tests/tools-fullsim.mjs both 1122 mage","shots":"node tests/tools-shots.mjs"}
+}

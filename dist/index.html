@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070b16">
+  <meta name="description" content="星陨战纪 Web 复刻版。选择五位英雄，加入一名玩家与九位 AI 的三路对决。支持键鼠与触屏，纯浏览器运行。">
+  <title>星陨战纪 · Starfall</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a1128'/%3E%3Cpath d='M32 5Q35 27 59 32Q35 37 32 59Q29 37 5 32Q29 27 32 5Z' fill='%23f3cf85'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./hud.css">
+</head>
+<body>
+  <main id="app" aria-label="星陨战纪">
+    <canvas id="stars" aria-hidden="true"></canvas>
+    <section id="home" class="screen home" aria-label="标题页">
+      <div class="home-decor" aria-hidden="true">
+        <i class="home-meteor"></i>
+        <svg class="home-mountains" viewBox="0 0 1200 260" preserveAspectRatio="none"><path d="M0 260V150L90 96L170 150L260 70L350 140L430 104L520 168L610 92L700 150L790 60L880 142L960 100L1050 160L1130 110L1200 150V260Z" fill="#10203f"/><path d="M0 260V190L110 140L210 196L320 128L420 190L540 150L640 204L760 136L860 196L980 150L1090 206L1200 170V260Z" fill="#0b1730"/><path d="M0 260V226L140 190L260 232L400 186L520 236L680 196L800 240L940 200L1080 240L1200 212V260Z" fill="#070f22"/></svg>
+        <div class="obelisk left"><i></i></div><div class="obelisk right"><i></i></div>
+      </div>
+      <div class="home-logo">
+        <svg class="emblem" viewBox="0 0 120 70" aria-hidden="true"><defs><linearGradient id="logo-g" x2="0" y2="1"><stop stop-color="#fff9dc"/><stop offset=".5" stop-color="#eec879"/><stop offset="1" stop-color="#a6732d"/></linearGradient></defs><ellipse cx="60" cy="37" rx="39" ry="10" transform="rotate(-17 60 37)" stroke="#9ce4ec" fill="none"/><path d="M60 3 Q64 31 90 36 Q64 41 60 68 Q56 41 30 36 Q56 31 60 3" fill="url(#logo-g)"/><path d="M60 20 Q62 34 76 36 Q62 38 60 52 Q58 38 44 36 Q58 34 60 20" fill="#fffee9"/></svg>
+        <h1 class="game-title">星陨战纪</h1>
+        <div class="english-title"><span></span>STARFALL<span></span></div>
+        <p class="tagline">坠星召来历代英杰 · 5v5 对决</p>
+      </div>
+      <div class="home-menu">
+        <button class="primary start-button" id="start">开始对战</button>
+        <label class="tutorial-toggle"><input type="checkbox" id="tutorial-toggle" checked><span>新手引导</span><small>（第一次玩建议打开）</small></label>
+        <div class="home-actions"><button class="secondary" data-action="help"><span class="button-icon">⌨</span>操作说明</button><button class="secondary" data-action="journal"><span class="button-icon">▤</span>对战记录</button><button class="secondary" data-action="settings"><span class="button-icon">⚙</span>设置</button></div>
+      </div>
+      <div class="home-caption"><span class="tiny-star">✦</span><span>三路战场</span><i>·</i><span>五位英杰</span><i>·</i><span>推塔夺晶</span></div>
+      <footer class="home-footer">1 名玩家 + 9 名 AI <i>·</i> 全部美术与音效均为程序化生成 <i>·</i> WebGL2 3D 复刻版</footer>
+    </section>
+    <section id="selection" class="screen selection" aria-label="选择英雄" hidden>
+      <header class="selection-header"><button class="icon-button" id="back-home" aria-label="返回标题">‹</button><h2>选择英雄</h2><p>星陨高原的坠星之力，召来了不同时代的英杰。</p><div class="header-right"><span class="keyboard-hint"><kbd>←</kbd><kbd>→</kbd> 切换英雄 <kbd>Enter</kbd> 开始</span><button class="icon-button" data-action="settings" aria-label="设置">⚙</button></div></header>
+      <div class="selection-layout"><div id="roster" class="roster" role="listbox" aria-label="英雄列表"></div><div class="hero-stage"><div class="stage-stars"></div><div class="stage-orbit orbit-1"></div><div class="stage-orbit orbit-2"></div><canvas id="hero-stage-canvas" class="hero-stage-canvas" aria-hidden="true"></canvas><div id="hero-art" class="hero-art"></div><div class="stage-plate"><h3 id="stage-name"></h3><span id="stage-role" class="stage-role"></span><small id="stage-title"></small></div><button class="stage-arrow prev" id="hero-prev" aria-label="上一位英雄">‹</button><button class="stage-arrow next" id="hero-next" aria-label="下一位英雄">›</button></div><aside id="hero-detail" class="hero-detail panel"></aside><div class="selection-go"><div class="difficulty-row"><span>对手难度</span><div class="difficulty-seg" id="difficulty" role="radiogroup" aria-label="对手难度"><button data-difficulty="easy" role="radio" aria-checked="false">简单</button><button data-difficulty="normal" role="radio" aria-checked="true">普通</button><button data-difficulty="hard" role="radio" aria-checked="false">困难</button></div><small id="difficulty-description">均衡的对抗，适合熟悉 MOBA 的玩家</small></div><button id="enter-match" class="primary">开始对战</button></div></div>
+    </section>
+    <section id="battle" class="screen battle" aria-label="对局战场" hidden>
+      <canvas id="battlefield" aria-label="战场；WASD 移动，右键移动或攻击，Q E R 释放技能" tabindex="0"></canvas>
+      <canvas id="battle-overlay" class="battle-overlay" aria-hidden="true"></canvas>
+      <div class="hud" id="hud">
+        <div class="mini-wrap" id="mini-wrap"><canvas id="minimap" class="minimap" width="264" height="264" aria-label="小地图，点按跳转视角，松开回到英雄" tabindex="0"></canvas><div class="mini-tools"><button class="bag-button" id="shop-bag" aria-label="打开商店"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M17 10h14l-3 7h-8z" fill="#b9822c"/><path d="M19 17h10c8 5 12 12 12 19 0 6-5 8-17 8S7 42 7 36c0-7 4-14 12-19z" fill="#f0c257" stroke="#8a5a1c" stroke-width="2"/><path d="M18 17h12" stroke="#7a4a16" stroke-width="3" stroke-linecap="round"/><text x="24" y="37" font-size="15" font-weight="800" text-anchor="middle" fill="#7a4a16">金</text></svg><b id="bag-gold">50</b></button><button class="mini-follow" id="camera-follow" aria-label="镜头跟随英雄" title="镜头回到英雄（C）">◎</button></div></div>
+        <div class="scorebar" id="scorebar"><div class="sb-team blue"><i class="sb-icon">⚔</i><span>蓝</span><b id="blue-score">0</b></div><div class="sb-clock"><b id="match-time">00:00</b></div><div class="sb-team red"><b id="red-score">0</b><span>红</span><i class="sb-icon">⚔</i></div><small class="sb-wave" id="wave-time">10秒</small></div>
+        <div class="objective" id="objective"><span>当前目标</span><b id="objective-text"></b></div>
+        <div class="kill-banner" id="kill-banner" hidden><span class="kb-face" id="kb-killer"></span><em id="kb-first">首杀</em><b id="kb-text"></b><span class="kb-face" id="kb-victim"></span></div>
+        <div class="hud-top-right"><span class="kda"><b id="kda">0 / 0 / 0</b><small>战绩</small></span><button class="gold-chip" id="gold-chip" aria-label="打开商店"><span>◈</span><b id="gold">50</b></button><button class="icon-button" id="scoreboard-button" aria-label="战况">▤<small>Tab</small></button><button class="icon-button" id="pause-button" aria-label="暂停与设置">Ⅱ<small>Esc</small></button></div>
+        <div class="team-strip" id="team-strip" aria-label="队友状态"></div>
+        <div id="killfeed" class="killfeed" aria-live="polite"></div>
+        <div id="announcement" class="announcement" aria-live="polite"></div>
+        <div id="tutorial" class="tutorial-pill" hidden><b id="tutorial-steps"></b><strong id="tutorial-title"></strong><span id="tutorial-text"></span><button id="tutorial-next">下一步</button><button id="close-tutorial">跳过引导</button></div>
+        <div class="hero-card-hud" id="hero-card"><div class="hc-portrait"><span id="player-portrait"></span><b id="player-level">1</b></div><div class="hc-main"><div class="hc-stats"><strong id="player-name"></strong><span>物攻 <b id="stat-ad">0</b></span><span>护甲 <b id="stat-armor">0</b></span><span>魔抗 <b id="stat-mr">0</b></span><span>移速 <b id="stat-speed">0</b></span></div><div class="hc-bar hp"><i id="health-fill"></i><span id="health-text"></span></div><div class="hc-bar mp"><i id="mana-fill"></i><span id="mana-text"></span></div><div class="hc-xp"><i id="xp-fill"></i></div></div><div class="hc-side"><div class="inventory" id="inventory"></div><button class="hc-gold" id="shop-button" aria-label="打开商店（P）"><span>◈</span><b id="card-gold">50</b></button></div></div>
+        <div class="vstick" id="joystick" aria-label="移动摇杆"><i class="jt n"></i><i class="jt e"></i><i class="jt s"></i><i class="jt w"></i><div class="vstick-knob" id="joystick-knob"></div></div>
+        <div class="skill-cluster" id="skill-controls">
+          <div class="sc-col">
+            <button class="sk sk-flash" id="flash" aria-label="闪现（F）"><span class="sk-face"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 3Q27 21 45 24Q27 27 24 45Q21 27 3 24Q21 21 24 3Z" fill="#ffe08a" stroke="#a8741f" stroke-width="1.5"/><circle cx="24" cy="24" r="4" fill="#fff8dc"/></svg><b class="cooldown"></b></span><kbd>F</kbd><small>闪现</small></button>
+            <button class="sk sk-heal" id="heal" aria-label="治疗（G）"><span class="sk-face"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M19 8h10v11h11v10H29v11H19V29H8V19h11z" fill="#ffffff"/></svg><b class="cooldown"></b></span><kbd>G</kbd><small>治疗</small></button>
+            <button class="sk sk-recall" id="recall" aria-label="回城（B）"><span class="sk-face"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4L37 19L24 44L11 19Z" fill="#bfe6ff" stroke="#ffffff" stroke-width="1.5"/><path d="M11 19h26M24 4v40" stroke="#5aa9e6" stroke-width="1.5" fill="none"/></svg><b class="cooldown"></b></span><kbd>B</kbd><small>回城</small></button>
+            <button class="sk sk-e sk-skill" data-skill="1" aria-label="二技能"><span class="sk-face"><span class="skill-art"></span><i class="sk-lock"></i><b class="cooldown"></b></span><kbd>E</kbd><small>位移</small></button>
+            <button class="sk sk-q sk-skill" data-skill="0" aria-label="一技能"><span class="sk-face"><span class="skill-art"></span><i class="sk-lock"></i><b class="cooldown"></b></span><kbd>Q</kbd><small>爆发</small></button>
+          </div>
+          <div class="sc-main">
+            <button class="sk sk-r sk-skill" data-skill="2" aria-label="大招"><span class="sk-face"><span class="skill-art"></span><i class="sk-lock"></i><b class="cooldown"></b></span><kbd>R</kbd><small>大招</small></button>
+            <button class="sk sk-attack" id="attack-button" aria-label="普通攻击（空格）"><span class="sk-face"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M46 6l12 0 0 12L30 46l-12-12z" fill="#ffe9a6" stroke="#9a6a1c" stroke-width="2"/><path d="M14 30l20 20-6 6-8-8-8 10-6-6 10-8-8-8z" fill="#e2b64e" stroke="#7a4f12" stroke-width="2"/><path d="M46 12L24 34" stroke="#fff8dc" stroke-width="2"/></svg></span><small>普攻</small></button>
+          </div>
+        </div>
+        <div class="channel" id="channel" hidden><span>正在回城</span><div><b></b></div></div>
+        <div class="death" id="respawn" hidden><div class="death-center"><h3>你已阵亡</h3><div class="death-ring"><b id="respawn-time">0</b></div><p>秒后复活</p><p class="death-killer" id="death-killer"></p><small>阵亡期间金币照常来，自出装备买买</small></div></div>
+        <div class="fps" id="fps" hidden></div>
+      </div>
+    </section>
+    <div id="overlay" class="overlay" hidden><div id="modal" class="modal" role="dialog" aria-modal="true" aria-label="游戏对话框"></div></div>
+    <div id="toast" class="toast" role="status"></div>
+    <div id="loading" class="loading" hidden><div class="loading-star">✦</div><h2>正在前往星陨高原</h2><p>准备英雄、兵线与防御塔</p></div>
+  </main>
+  <noscript><p>游戏需要启用 JavaScript。请使用支持 JavaScript 的现代浏览器。</p></noscript>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
