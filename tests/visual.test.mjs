@@ -1,6 +1,6 @@
 // Visual regression for the WebGL2 3D edition (brief sections B, C, D).
 // Three layers of checks on deterministic, frozen scenes:
-//   1. structure  - renderer type, 45 degree camera, hero = 1/6 of the viewport, HUD layout boxes;
+//   1. structure  - renderer type, 45 degree camera, hero = 1/10 of the viewport, HUD layout boxes;
 //   2. content    - colour statistics of the rendered frame (grass / water / stone / gold) and minimap pixels;
 //   3. baselines  - tolerant pixel comparison against tests/visual-baseline/*.png
 //                   (regenerate with UPDATE_VISUAL=1 npm test after an intended visual change).
@@ -54,15 +54,18 @@ test('visual regression: title, hero select, 3D battlefield, HUD, minimap, death
     const pedestal = await analyse(page, selectShot, { x: Math.round(stage.x), y: Math.round(stage.y + stage.h * .25), w: Math.round(stage.w), h: Math.round(stage.h * .75) });
     assert.ok(pedestal.gold > .01, `hero stage shows the gold-rimmed pedestal and armour (${pedestal.gold})`);
 
-    // ---- battlefield at the spawn: WebGL2, 45 degrees, hero = 1/6, HUD layout -------------------
+    // ---- battlefield at the spawn: WebGL2, 45 degrees, hero = 1/10, HUD layout -------------------
     await startFrozen(page, { heroId: 'fighter', seed: 1122, seconds: 2, clock: 1.5 });
     const cam = await page.evaluate(() => { const r = window.__starfall.renderer, w = window.__starfall.world, p = w.player, a = r.worldToScreen(p.x, p.y), b = r.worldToScreen(p.x + 1, p.y), c = r.worldToScreen(p.x, p.y - 1), d = r.worldToScreen(p.x, p.y - 6), e = r.worldToScreen(p.x + 1, p.y - 6);
       return { kind: document.querySelector('#battle').dataset.renderer, is3D: !!r.is3D, pitch: r.pitchDegrees, hero: r.heroScreenFraction(), back: r.screenToWorld(a.x, a.y), p: { x: p.x, y: p.y }, a, unitNear: b.x - a.x, unitFar: e.x - d.x, up: a.y - c.y, h: innerHeight, w: innerWidth, tris: r.triangles }; });
     assert.equal(cam.kind, 'webgl2'); assert.equal(cam.is3D, true);
     assert.ok(Math.abs(cam.pitch - 45) < .01, `camera elevation is 45 degrees (${cam.pitch})`);
-    assert.ok(Math.abs(cam.hero - 1 / 6) < .01, `hero covers 1/6 of the viewport height (${cam.hero})`);
+    assert.ok(Math.abs(cam.hero - 1 / 10) < .01, `hero covers 1/10 of the viewport height (${cam.hero})`);
     assert.ok(Math.abs(cam.a.x - cam.w / 2) < 3 && Math.abs(cam.a.y - cam.h / 2) < cam.h * .12, 'camera follows the hero');
-    assert.ok(cam.unitFar < cam.unitNear * .82, `ground converges with distance (${cam.unitNear.toFixed(1)} -> ${cam.unitFar.toFixed(1)} px per unit)`);
+    // 1/10 camera (approved 2026-11-22): pulling the camera back weakens perspective
+    // convergence vs the 1/6 camera (measured ratio 0.867 in the frozen scene, was < 0.82).
+    // 0.90 still catches a flat/orthographic view (ratio 1.0).
+    assert.ok(cam.unitFar < cam.unitNear * .90, `ground converges with distance (${cam.unitNear.toFixed(1)} -> ${cam.unitFar.toFixed(1)} px per unit)`);
     assert.ok(cam.up > 0 && cam.up < cam.unitNear, 'north is up-screen and foreshortened by the tilt');
     assert.ok(Math.hypot(cam.back.x - cam.p.x, cam.back.y - cam.p.y) < .35, 'screenToWorld inverts worldToScreen');
     const spawnShot = await baseline('spawn'), spawn = await analyse(page, spawnShot);

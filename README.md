@@ -93,3 +93,7 @@ npm test
 画面为自写的 WebGL2 3D 渲染：相机俯仰角固定 45°，英雄约占屏高 1/6，全部模型、贴图、特效由程序生成，不含任何原站文件。没有 WebGL2 的浏览器回退到 Canvas2D 2.5D 渲染。人物造型、光照、材质及技能特效按文字描述与抽帧取色自行实现，并非逐像素一致。原站公共留言板与访问统计未接入，本版提供真实的本机对战记录。
 
 本版本是可玩的独立重建交付，不声称完成了像素级或帧级 1:1 验收。真实安卓/iOS 设备上的长期帧率、耗电与兼容性尚未做设备实测。
+
+## 2026-11-22 follow-on iteration
+
+The local follow-on delta for `starfall-gpt6pro-01` is recorded in `docs/GPT6PRO-ITERATION.md`. It includes the 1/10 camera target, revised 11-minute minion growth pacing, player-only locomotion blend stabilization, Fullscreen API controls, touch-first tutorial text and portrait/landscape HUD rules, plus procedural armor, tower, stone and spell-circle detail. See the report for the exact validation status: browser screenshots and visual baseline regeneration are still outstanding in this environment.

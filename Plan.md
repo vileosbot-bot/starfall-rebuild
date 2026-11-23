@@ -1,1 +1,3 @@
-本仓库基线为 Claude 轨 BRIEF-CL-01 完成态（2026-11-22）；该基线记录的测试结果为 42/42 通过。本次提交仅上传基线文件，不包含新增开发或逻辑修改。
+# Starfall baseline plan
+
+Baseline: Claude BRIEF-CL-01 completed state, 2026-11-22. The delivered baseline contains the WebGL2 renderer, procedural 3D models, square minimap, 45-degree camera, multi-touch controls, and the single-file build. Baseline test target: 42/42 passing. Follow-on work is tracked separately by request-id and must not be committed directly to `main`.

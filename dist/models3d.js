@@ -21,12 +21,20 @@ function body(g, o) {
   g.body.at(null);
   if (o.chest) g.body.color(o.chest).at(M.translate(0, .82, .25 * k)).sphere(.27 * k, .25, .12);
   g.body.at(null);
+  // Small baked-in armour seams and a raised clasp make silhouettes readable
+  // without textures, post-processing, or per-frame work.
+  const trim = o.trim || o.belt || o.torso2;
+  g.body.color(trim).box(.28 * k, .11, .055, 0, .53, .34 * k);
+  g.body.color(o.chest || o.shoulder || trim).box(.075 * k, .3, .045, 0, .83, .36 * k);
+  g.body.color('#e8d5a0').sphere(.045 * k, .045, .025, 0, .53, .39 * k, 6, 4);
   for (const s of [-1, 1]) {
     const arm = s < 0 ? g.armL : g.armR, leg = s < 0 ? g.legL : g.legR;
     arm.color(o.arm).cyl(.1, .115, .5, 8, s * SHOULDER_X * k, .63, 0);
     arm.color(o.glove || o.skin).sphere(.125, .125, .125, s * SHOULDER_X * k, .6, .02, 8, 5);
+    arm.color(trim).cyl(.12 * k, .12 * k, .075, 8, s * SHOULDER_X * k, .48, 0);
     if (o.shoulder) arm.color(o.shoulder).sphere(.21 * k, .17, .21 * k, s * SHOULDER_X * k, 1.17, 0, 8, 5);
     leg.color(o.leg).cyl(.125, .145, .4, 8, s * .17, .16, 0);
+    leg.color(trim).box(.22 * k, .09, .055, s * .17, .25, .18);
     leg.color(o.boot).box(.25, .17, .36, s * .17, 0, .04);
   }
 }
@@ -146,9 +154,11 @@ export function minion(variant, team) {
   const g = newGroups(), armor = '#7f90a6', dark = '#566579', tc = TEAM[team] || TEAM.neutral, big = variant === 'super';
   body(g, { skin: '#eac9a4', torso: armor, torso2: dark, belt: tc, chest: big ? '#e2b64e' : '#9fb0c4', arm: dark, glove: '#5a4636', leg: '#4c5666', boot: '#39414e', shoulder: big ? '#e2b64e' : armor, bulk: big ? 1.15 : 1 });
   g.body.color(tc).at(M.translate(0, .52, .34)).box(.3, .5, .04).at(null); // team tabard
+  g.body.color('#dce5ee').at(M.translate(0, .52, .37)).box(.055, .34, .025).color('#e2b64e').sphere(.075, .075, .035, 0, .84, .38, 6, 4).at(null);
   head(g, { skin: '#eac9a4' });
   helmet(g, armor, tc, .56);
   g.head.color(tc).sphere(.07, .17, .2, 0, HEAD_Y + .55, -.06, 6, 4);
+  g.head.color('#dce5ee').box(.08, .2, .055, 0, HEAD_Y + .25, .38);
   const h = hand(1), m = M.chain(M.translate(h[0], h[1], h[2]), M.rotX(1.0));
   if (variant === 'ranged') {
     g.armR.color('#7a5a36').at(m).cyl(.04, .04, 1.5, 6, 0, -.5, 0).color('#dfe6ee').cyl(.07, 0, .3, 6, 0, 1.0, 0).at(null); // javelin
@@ -160,7 +170,7 @@ export function minion(variant, team) {
     g.armR.color('#5a4632').at(m).cyl(.045, .045, .2, 6, 0, -.1, 0).color('#e2b64e').box(.26, .05, .08, 0, .1, 0).color('#dfe6ee').at(null);
     plate(g.armR, [[-.07, .15], [.07, .15], [.06, .85], [0, 1.0], [-.06, .85]], .035, m);
     const hl = hand(-1); // round shield
-    g.armL.color(tc).at(M.chain(M.translate(hl[0] - .1, hl[1] + .15, hl[2] + .18), M.rotX(Math.PI / 2))).cyl(.36, .36, .06, 10).color('#e8edf2').cyl(.12, .06, .1, 8, 0, .06, 0).at(null);
+    g.armL.color(tc).at(M.chain(M.translate(hl[0] - .1, hl[1] + .15, hl[2] + .18), M.rotX(Math.PI / 2))).cyl(.36, .36, .06, 10).color('#e8edf2').cyl(.12, .06, .1, 8, 0, .06, 0).color('#e2b64e').sphere(.09, .09, .055, 0, 0, .12, 8, 5).at(null);
   }
   return { groups: g, pivots: PIVOTS, height: 2.3, style: { attack: variant === 'ranged' ? 'stab' : 'swing', armBase: -.5 } };
 }
@@ -234,6 +244,7 @@ export function tower(team, tier) {
   const top = 1.35 + 2.5 * k;
   base.color(stone).cyl(.82, 1.2, .35, 8, 0, top, 0, { smooth: false, phase: TAU / 16 }).color(stone2).cyl(1.2, 1.2, .2, 8, 0, top + .35, 0, { smooth: false, phase: TAU / 16 });
   for (let i = 0; i < 8; i++) { const a = i * TAU / 8 + TAU / 16; base.color(i % 2 ? stone : '#cfc9ba').box(.42, .4, .3, Math.cos(a) * 1.05, top + .55, Math.sin(a) * 1.05); }
+  for (let i = 0; i < 8; i++) { const a = i * TAU / 8; base.color(i % 2 ? '#77736a' : '#d0cabb').at(M.chain(M.translate(Math.cos(a) * .98, 1.55 * k, Math.sin(a) * .98), M.rotY(-a))).box(.16, 1.7 * k, .12).at(null); }
   base.color('#e2b64e').cyl(.5, .3, .25, 6, 0, top + .55, 0);
   gem.color(hex(tc, .85)).crystal(.42 + tier * .05, 1.3 + tier * .15, 6, 0, 0, 0, .4);
   const ruin = new Geo();

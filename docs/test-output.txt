@@ -1,56 +1,278 @@
-check exit=0
-✔ clicking a raised hero body selects it without requiring a click at its feet (1.360939ms)
-✔ hidden, allied and dead entities cannot be picked or acquired by touch aim (0.376213ms)
-✔ touch aim resolves nearby visible target and returns nothing when out of reach (0.199008ms)
-✔ turning off recommended purchases changes only the player, while bots still equip themselves (845.892293ms)
-✔ audit: four items carry the original names and prices, ids and effects untouched (2.298353ms)
-✔ audit: every hero starts with 50 gold (4.463296ms)
-✔ audit: hero base stats and per-level growth match the original table (0.478977ms)
-✔ objective banner follows the match state (30.525398ms)
-✔ death lines name the killer, class and level; first blood is flagged (2.450201ms)
-✔ camp timers are exposed read-only for the minimap (1:56 / 4:26 at 4 seconds) (12.91059ms)
-✔ minimap is an unrotated square: map corners map to canvas corners and back (0.370384ms)
-✔ pacing: all-AI and idle-player matches end by crystal destruction inside 12-20 minutes (19137.672521ms)
-✔ review: structures respect each lane and one broken high ground unlocks core (8.562667ms)
-✔ review: arbitrary elapsed time cannot declare a winner (2.598613ms)
-✔ review: damaging recall cancels it; uninterrupted recall reaches home (37.268159ms)
-✔ review: keyboard movement cancels recall without teleporting (3.97876ms)
-✔ review: dead heroes reject all combat and movement commands (1.778795ms)
-✔ review: empty aimed assassination does not spend mana or start cooldown (6.542101ms)
-✔ review: purchases honor budget, six slots, refunds and boot replacement (1.494058ms)
-✔ review: slow reduces direct player displacement (4.613591ms)
-✔ review: fixed input and seed are deterministic over a meaningful 30s combat window (805.696739ms)
-✔ complete initial roster and exact map structure (6.957593ms)
-✔ each lane unlocks its own tower chain; other lanes remain protected (2.765844ms)
-✔ destroying one complete lane unlocks the core and only core death ends match (1.78225ms)
-✔ armor mitigation uses reference factor 600 and true damage bypasses it (0.899447ms)
-✔ no-minion structure defense reduces damage by sixty percent (2.054507ms)
-✔ boot upgrades credit old sale value and do not consume an extra slot (1.209552ms)
-✔ shop rejects insufficient gold and full inventory, sell returns sixty percent (0.978626ms)
-✔ first skill consumes mana once and respects cooldown; locked skills consume nothing (1.571995ms)
-✔ empty target-ultimate aim never spends mana or cooldown (0.565067ms)
-✔ target-ultimate validates aim and damages a valid hero (2.32287ms)
-✔ level progression learns the ultimate at level four (1.078165ms)
-✔ recall completes after five seconds and movement cancels its channel (19.964347ms)
-✔ damage and attack orders cancel recall (1.257224ms)
-✔ dead hero cannot cast, move, heal or flash, but can buy and respawns (21.27492ms)
-✔ slow affects normal heroes and direct movement collides with terrain (6.941819ms)
-✔ waves start at ten seconds and repeat every thirty seconds (235.80267ms)
-✔ paused match freezes gold, movement and cooldowns (0.986989ms)
-✔ seeded full simulation repeats and keeps finite bounded state (3825.571686ms)
-✔ all fifteen hero abilities execute without nonfinite state (101.663275ms)
-✔ multi-touch: joystick held + skill/flash/heal/recall taps work together (30301.688997ms)
-✔ visual regression: title, hero select, 3D battlefield, HUD, minimap, death screen, 2D fallback (85796.75525ms)
-ℹ title: mean diff 0.022, changed pixels 0.00%
-ℹ select: mean diff 0, changed pixels 0.00%
-ℹ spawn: mean diff 0, changed pixels 0.00%
-ℹ river: mean diff 0.05, changed pixels 0.00%
-ℹ dead: mean diff 0.143, changed pixels 0.00%
-ℹ tests 42
-ℹ suites 0
-ℹ pass 42
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 142169.851139
+
+> starfall-web-rebuild@2.0.0 test
+> node --test --test-concurrency=1 tests/*.test.mjs
+
+TAP version 13
+# Subtest: clicking a raised hero body selects it without requiring a click at its feet
+ok 1 - clicking a raised hero body selects it without requiring a click at its feet
+  ---
+  duration_ms: 0.968425
+  type: 'test'
+  ...
+# Subtest: hidden, allied and dead entities cannot be picked or acquired by touch aim
+ok 2 - hidden, allied and dead entities cannot be picked or acquired by touch aim
+  ---
+  duration_ms: 0.298859
+  type: 'test'
+  ...
+# Subtest: touch aim resolves nearby visible target and returns nothing when out of reach
+ok 3 - touch aim resolves nearby visible target and returns nothing when out of reach
+  ---
+  duration_ms: 0.163866
+  type: 'test'
+  ...
+# Subtest: turning off recommended purchases changes only the player, while bots still equip themselves
+ok 4 - turning off recommended purchases changes only the player, while bots still equip themselves
+  ---
+  duration_ms: 576.85909
+  type: 'test'
+  ...
+# Subtest: audit: four items carry the original names and prices, ids and effects untouched
+ok 5 - audit: four items carry the original names and prices, ids and effects untouched
+  ---
+  duration_ms: 1.216968
+  type: 'test'
+  ...
+# Subtest: audit: every hero starts with 50 gold
+ok 6 - audit: every hero starts with 50 gold
+  ---
+  duration_ms: 2.851965
+  type: 'test'
+  ...
+# Subtest: audit: hero base stats and per-level growth match the original table
+ok 7 - audit: hero base stats and per-level growth match the original table
+  ---
+  duration_ms: 0.259129
+  type: 'test'
+  ...
+# Subtest: objective banner follows the match state
+ok 8 - objective banner follows the match state
+  ---
+  duration_ms: 19.842574
+  type: 'test'
+  ...
+# Subtest: death lines name the killer, class and level; first blood is flagged
+ok 9 - death lines name the killer, class and level; first blood is flagged
+  ---
+  duration_ms: 1.334716
+  type: 'test'
+  ...
+# Subtest: camp timers are exposed read-only for the minimap (1:56 / 4:26 at 4 seconds)
+ok 10 - camp timers are exposed read-only for the minimap (1:56 / 4:26 at 4 seconds)
+  ---
+  duration_ms: 9.7307
+  type: 'test'
+  ...
+# Subtest: minimap is an unrotated square: map corners map to canvas corners and back
+ok 11 - minimap is an unrotated square: map corners map to canvas corners and back
+  ---
+  duration_ms: 0.26624
+  type: 'test'
+  ...
+# Subtest: pacing: all-AI and idle-player matches end by crystal destruction inside 12-20 minutes
+ok 12 - pacing: all-AI and idle-player matches end by crystal destruction inside 12-20 minutes
+  ---
+  duration_ms: 10713.451115
+  type: 'test'
+  ...
+# Subtest: camera hero occupancy matches the 1/10 reference scale
+ok 13 - camera hero occupancy matches the 1/10 reference scale
+  ---
+  duration_ms: 0.595225
+  type: 'test'
+  ...
+# Subtest: render locomotion holds its gait across 30 Hz simulation gaps at 60 Hz render cadence
+ok 14 - render locomotion holds its gait across 30 Hz simulation gaps at 60 Hz render cadence
+  ---
+  duration_ms: 0.407032
+  type: 'test'
+  ...
+# Subtest: review: structures respect each lane and one broken high ground unlocks core
+ok 15 - review: structures respect each lane and one broken high ground unlocks core
+  ---
+  duration_ms: 5.265322
+  type: 'test'
+  ...
+# Subtest: review: arbitrary elapsed time cannot declare a winner
+ok 16 - review: arbitrary elapsed time cannot declare a winner
+  ---
+  duration_ms: 1.953796
+  type: 'test'
+  ...
+# Subtest: review: damaging recall cancels it; uninterrupted recall reaches home
+ok 17 - review: damaging recall cancels it; uninterrupted recall reaches home
+  ---
+  duration_ms: 29.2181
+  type: 'test'
+  ...
+# Subtest: review: keyboard movement cancels recall without teleporting
+ok 18 - review: keyboard movement cancels recall without teleporting
+  ---
+  duration_ms: 2.807768
+  type: 'test'
+  ...
+# Subtest: review: dead heroes reject all combat and movement commands
+ok 19 - review: dead heroes reject all combat and movement commands
+  ---
+  duration_ms: 1.181805
+  type: 'test'
+  ...
+# Subtest: review: empty aimed assassination does not spend mana or start cooldown
+ok 20 - review: empty aimed assassination does not spend mana or start cooldown
+  ---
+  duration_ms: 2.973868
+  type: 'test'
+  ...
+# Subtest: review: purchases honor budget, six slots, refunds and boot replacement
+ok 21 - review: purchases honor budget, six slots, refunds and boot replacement
+  ---
+  duration_ms: 1.130759
+  type: 'test'
+  ...
+# Subtest: review: slow reduces direct player displacement
+ok 22 - review: slow reduces direct player displacement
+  ---
+  duration_ms: 5.682939
+  type: 'test'
+  ...
+# Subtest: review: fixed input and seed are deterministic over a meaningful 30s combat window
+ok 23 - review: fixed input and seed are deterministic over a meaningful 30s combat window
+  ---
+  duration_ms: 513.203575
+  type: 'test'
+  ...
+# Subtest: complete initial roster and exact map structure
+ok 24 - complete initial roster and exact map structure
+  ---
+  duration_ms: 4.569716
+  type: 'test'
+  ...
+# Subtest: each lane unlocks its own tower chain; other lanes remain protected
+ok 25 - each lane unlocks its own tower chain; other lanes remain protected
+  ---
+  duration_ms: 2.633918
+  type: 'test'
+  ...
+# Subtest: destroying one complete lane unlocks the core and only core death ends match
+ok 26 - destroying one complete lane unlocks the core and only core death ends match
+  ---
+  duration_ms: 1.945183
+  type: 'test'
+  ...
+# Subtest: armor mitigation uses reference factor 600 and true damage bypasses it
+ok 27 - armor mitigation uses reference factor 600 and true damage bypasses it
+  ---
+  duration_ms: 0.502665
+  type: 'test'
+  ...
+# Subtest: no-minion structure defense reduces damage by sixty percent
+ok 28 - no-minion structure defense reduces damage by sixty percent
+  ---
+  duration_ms: 0.519571
+  type: 'test'
+  ...
+# Subtest: boot upgrades credit old sale value and do not consume an extra slot
+ok 29 - boot upgrades credit old sale value and do not consume an extra slot
+  ---
+  duration_ms: 0.662024
+  type: 'test'
+  ...
+# Subtest: shop rejects insufficient gold and full inventory, sell returns sixty percent
+ok 30 - shop rejects insufficient gold and full inventory, sell returns sixty percent
+  ---
+  duration_ms: 0.70534
+  type: 'test'
+  ...
+# Subtest: first skill consumes mana once and respects cooldown; locked skills consume nothing
+ok 31 - first skill consumes mana once and respects cooldown; locked skills consume nothing
+  ---
+  duration_ms: 1.072401
+  type: 'test'
+  ...
+# Subtest: empty target-ultimate aim never spends mana or cooldown
+ok 32 - empty target-ultimate aim never spends mana or cooldown
+  ---
+  duration_ms: 0.855475
+  type: 'test'
+  ...
+# Subtest: target-ultimate validates aim and damages a valid hero
+ok 33 - target-ultimate validates aim and damages a valid hero
+  ---
+  duration_ms: 1.795668
+  type: 'test'
+  ...
+# Subtest: level progression learns the ultimate at level four
+ok 34 - level progression learns the ultimate at level four
+  ---
+  duration_ms: 0.774785
+  type: 'test'
+  ...
+# Subtest: recall completes after five seconds and movement cancels its channel
+ok 35 - recall completes after five seconds and movement cancels its channel
+  ---
+  duration_ms: 15.211725
+  type: 'test'
+  ...
+# Subtest: damage and attack orders cancel recall
+ok 36 - damage and attack orders cancel recall
+  ---
+  duration_ms: 0.839151
+  type: 'test'
+  ...
+# Subtest: dead hero cannot cast, move, heal or flash, but can buy and respawns
+ok 37 - dead hero cannot cast, move, heal or flash, but can buy and respawns
+  ---
+  duration_ms: 15.891418
+  type: 'test'
+  ...
+# Subtest: slow affects normal heroes and direct movement collides with terrain
+ok 38 - slow affects normal heroes and direct movement collides with terrain
+  ---
+  duration_ms: 7.996865
+  type: 'test'
+  ...
+# Subtest: waves start at ten seconds and repeat every thirty seconds
+ok 39 - waves start at ten seconds and repeat every thirty seconds
+  ---
+  duration_ms: 157.437272
+  type: 'test'
+  ...
+# Subtest: paused match freezes gold, movement and cooldowns
+ok 40 - paused match freezes gold, movement and cooldowns
+  ---
+  duration_ms: 0.616576
+  type: 'test'
+  ...
+# Subtest: seeded full simulation repeats and keeps finite bounded state
+ok 41 - seeded full simulation repeats and keeps finite bounded state
+  ---
+  duration_ms: 2035.031417
+  type: 'test'
+  ...
+# Subtest: all fifteen hero abilities execute without nonfinite state
+ok 42 - all fifteen hero abilities execute without nonfinite state
+  ---
+  duration_ms: 87.417014
+  type: 'test'
+  ...
+# Subtest: multi-touch: joystick held + skill/flash/heal/recall taps work together
+ok 43 - multi-touch: joystick held + skill/flash/heal/recall taps work together # SKIP Playwright not found (set PLAYWRIGHT_MODULE to a node_modules directory)
+  ---
+  duration_ms: 3.095721
+  type: 'test'
+  ...
+# Subtest: visual regression: title, hero select, 3D battlefield, HUD, minimap, death screen, 2D fallback
+ok 44 - visual regression: title, hero select, 3D battlefield, HUD, minimap, death screen, 2D fallback # SKIP Playwright not found (set PLAYWRIGHT_MODULE to a node_modules directory)
+  ---
+  duration_ms: 3.211115
+  type: 'test'
+  ...
+1..44
+# tests 44
+# suites 0
+# pass 42
+# fail 0
+# cancelled 0
+# skipped 2
+# todo 0
+# duration_ms 14721.714392

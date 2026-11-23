@@ -1,0 +1,4 @@
+
+> starfall-web-rebuild@2.0.0 check
+> node --check dist/app.js && node --check dist/sim.js && node --check dist/render.js && node --check dist/render3d.js && node --check dist/glkit.js && node --check dist/models3d.js && node --check dist/minimap.js && node --check dist/hud.js && node --check dist/touch.js && node --check dist/portraits.js && node --check dist/audio.js && node --check dist/controls.js
+

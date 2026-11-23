@@ -184,3 +184,11 @@ request-id：`starfall-claude-fable-01` ｜ 日期：2026-11-22
 | `docs/shots/12-tower.png` | 上路一塔与石板路 |
 
 全部截图与视觉基线都拍自最终代码（03/05/06/07 四张在石墙高度从 1.45 降到 1.15 之后重拍过，上面的工具输出是重拍前那一次完整运行的记录，数值相同）。
+
+---
+
+## GPT-6 iteration delta (`starfall-gpt6pro-01`)
+
+The camera target is now 1/10 rather than 1/6. The five existing `tests/visual-baseline/*.png` files have **not** been regenerated and still correspond to the old 1/6 view. HUD changes include toast separation, compact landscape controls, portrait reflow, and touch-specific tutorial copy. Procedural detail was added to hero/minion armor, tower pilasters, baked stone texture, and spell-circle runes.
+
+No new acceptance screenshots were captured. The supplied environment lacks the Node Playwright module and managed Chromium blocks navigation and fullscreen (`URLBlocklist: ["*"]`, `FullscreenAllowed: false`). Therefore none of the new layout, animation, fullscreen, or visual-detail changes are marked visually verified. See `docs/GPT6PRO-ITERATION.md` for the full evidence and limitations.

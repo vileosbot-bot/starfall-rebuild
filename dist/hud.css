@@ -183,3 +183,42 @@
   .hero-card-hud{bottom:calc(max(22px,env(safe-area-inset-bottom)) + clamp(118px,25vmin,190px) + 150px);width:92vw}
   .vstick{width:clamp(118px,34vw,170px)}
 }
+
+/* Toasts sit below the kill banner instead of covering its centre text. */
+.toast{top:calc(max(8px,env(safe-area-inset-top)) + 172px)}
+
+/* Fullscreen keeps the existing battle tree and HUD mounted; only the viewport changes. */
+#battle:fullscreen,#battle:-webkit-full-screen{width:100vw;height:100dvh;background:#12281a}
+
+/* Compact landscape HUD: reserve the safe-area edge for the complete control group. */
+@media(max-height:530px) and (orientation:landscape){
+  .hud-top-right{right:max(8px,env(safe-area-inset-right));gap:4px;max-width:calc(100vw - 16px)}
+  .hud-top-right .kda{padding:3px 6px;font-size:11px}
+  .hud-top-right .kda small{display:none}
+  .hud-top-right .gold-chip{min-width:0;padding:4px 6px;gap:3px;font-size:11px}
+  .hud-top-right .gold-chip span{font-size:14px}
+  .hud-top-right .icon-button{width:30px;height:30px;font-size:15px}
+  .hud-top-right .icon-button small{display:none}
+  .toast{top:calc(max(8px,env(safe-area-inset-top)) + 148px)}
+}
+
+/* Portrait: top row stays single-line; tutorial and hero card occupy separate bands. */
+@media(orientation:portrait){
+  .scorebar{left:50%;right:auto;transform:translateX(-50%)}
+  .hud-top-right{top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));gap:4px;max-width:calc(100vw - 16px)}
+  .hud-top-right .kda{display:none}
+  .hud-top-right .gold-chip{min-width:0;padding:4px 6px;gap:3px;font-size:12px}
+  .hud-top-right .gold-chip span{font-size:15px}
+  .hud-top-right .icon-button{width:34px;height:34px;font-size:16px}
+  .objective{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 10px);max-width:calc(100vw - 24px)}
+  .tutorial-pill{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 58px);left:16px;right:16px;transform:none;width:auto;max-width:none;max-height:min(28vh,330px);overflow:auto;flex-wrap:wrap;justify-content:flex-start;gap:6px 10px;padding:9px 12px;border-radius:14px}
+  .tutorial-pill span{flex:1 1 100%;line-height:1.55}
+  .tutorial-pill button{padding:5px 9px}
+  .tutorial-pill.touch strong{color:#9fe4f1}
+  .kill-banner{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 180px);max-width:calc(100vw - 28px);min-width:0;padding:5px 9px;gap:6px;font-size:13px}
+  .toast{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 248px)}
+  .hero-card-hud{bottom:calc(max(22px,env(safe-area-inset-bottom)) + var(--sk) * 6.9 + 32px);width:min(88vw,680px);min-width:0;left:50%;transform:translateX(-50%)}
+  .hc-side .inventory{display:grid}
+  .hc-side .inventory button{width:20px;height:20px}
+  .skill-cluster{right:max(10px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom))}
+}

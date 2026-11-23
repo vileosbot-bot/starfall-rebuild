@@ -8,7 +8,7 @@ import { drawMinimap } from './minimap.js';
 
 export const CAMERA_PITCH = Math.PI / 4;      // elevation fixed at 45 degrees (brief section D)
 export const CAMERA_FOV = 40 * Math.PI / 180; // vertical field of view
-export const HERO_SCREEN_FRACTION = 1 / 6;    // a hero is ~1/6 of the viewport height
+export const HERO_SCREEN_FRACTION = 1 / 10;   // a hero is ~1/10 of the viewport height
 const HERO_SCALE = 1.12, HERO_HEIGHT = 2.5 * HERO_SCALE, MINION_SCALE = .62, EXTENT = 72, DAIS_R = 5.6, DAIS_H = .28, EDGE = 2.6; // EDGE: the perimeter wall sits this far outside the walkable bound
 const HERO_COLOR = Object.fromEntries(HEROES.map(h => [h.id, h.color]));
 const PURPLE_CASTERS = new Set(['mage', 'assassin']);
@@ -19,6 +19,18 @@ function inside(x, y, poly) { let c = false; for (let i = 0, j = poly.length - 1
 function edgeDist(x, y, poly) { let d = Infinity; for (let i = 0; i < poly.length; i++) d = Math.min(d, segDist(x, y, poly[i], poly[(i + 1) % poly.length])); return d; }
 const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 const RIVER = [{ x: -45.5, y: -45.5 }, { x: 0, y: 0 }, { x: 45.5, y: 45.5 }];
+
+// The simulation advances at 30 Hz while rendering commonly runs at 60 Hz.
+// Keep a short movement hold across the intervening zero-displacement render
+// frames so the hero's gait blend does not alternate between moving and idle.
+export function updateLocomotion(st, speed, dt, alive = true, teleported = false) {
+  if (!alive || teleported) st.moveHold = 0;
+  else if (speed > .6) st.moveHold = .085;
+  else st.moveHold = Math.max(0, (st.moveHold || 0) - dt);
+  const moving = alive && !teleported && st.moveHold > 0;
+  st.move += ((moving ? 1 : 0) - st.move) * (1 - Math.exp(-dt * 12));
+  return moving;
+}
 
 export function webgl2Available() {
   try { const c = document.createElement('canvas'), gl = c.getContext('webgl2'); if (!gl) return false; gl.getExtension('WEBGL_lose_context')?.loseContext(); return true; } catch { return false; }
@@ -104,6 +116,13 @@ function atlasCanvas() { // 2x2 cells: soft blob, thin ring, magic circle, four-
     g.lineWidth = R * .02; g.beginPath(); g.arc(0, 0, R * .44, 0, TAU); g.stroke(); g.beginPath(); g.arc(0, 0, R * .3, 0, TAU); g.stroke();
     g.beginPath(); for (let i = 0; i <= 5; i++) { const a = -Math.PI / 2 + i * 2 * TAU / 5; g[i ? 'lineTo' : 'moveTo'](Math.cos(a) * R * .3, Math.sin(a) * R * .3); } g.stroke();
     for (let i = 0; i < 8; i++) { const a = i * TAU / 8 + TAU / 16; g.beginPath(); g.arc(Math.cos(a) * R * .62, Math.sin(a) * R * .62, R * .045, 0, TAU); g.stroke(); }
+    // Twelve short rune marks and inset sparks sharpen the spell-circle read at a glance.
+    g.lineWidth = R * .014;
+    for (let i = 0; i < 12; i++) {
+      const a = i * TAU / 12, r0 = R * .49, r1 = R * (i % 3 ? .56 : .6);
+      g.beginPath(); g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); g.lineTo(Math.cos(a) * r1, Math.sin(a) * r1); g.stroke();
+      g.beginPath(); g.arc(Math.cos(a) * R * .68, Math.sin(a) * R * .68, R * (i % 3 ? .012 : .022), 0, TAU); g.fill();
+    }
     const gr = g.createRadialGradient(0, 0, 0, 0, 0, R); gr.addColorStop(0, 'rgba(255,255,255,.34)'); gr.addColorStop(.8, 'rgba(255,255,255,.16)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, R * .93, 0, TAU); g.fill();
   });
   cell(3, R => { const gr = g.createRadialGradient(0, 0, 0, 0, 0, R * .6); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.3, 'rgba(255,255,255,.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(-R, -R, R * 2, R * 2);
@@ -286,6 +305,7 @@ export class Renderer3D extends GLBase {
   draw(world, options = {}) {
     if (!world || this.lost) return;
     const t0 = performance.now(), { aim = null, showRanges = false, quality = 'high', dt = 1 / 60 } = options, gl = this.gl, p = world.player, team = p?.team || 'blue';
+    this.playerId = p?.id;
     this.clock += dt; this.time = world.time || 0; const T = this.clock;
     if (this.fxWorld !== world) { this.fxWorld = world; this.state.clear(); this.circles = []; this.seenFx = 0; this._maxFx = 0; }
     if (!this.hasCamera && p) this.resetCamera(p);
@@ -357,8 +377,10 @@ export class Renderer3D extends GLBase {
     if (!st) { st = { yaw: e.facing || 0, walk: (e.id * 1.7) % TAU, move: 0, x: e.x, y: e.y, atk: -1, flash: 0, dead: 0, fade: 1, hidden: false, gy: groundY(e.x, e.y) }; this.state.set(e.id, st); }
     if (dt > 0) {
       const d = Math.hypot(e.x - st.x, e.y - st.y), speed = d / dt, teleported = d > 3; st.x = e.x; st.y = e.y;
-      const moving = e.alive && !teleported && speed > .6;
-      st.move += ((moving ? 1 : 0) - st.move) * (1 - Math.exp(-dt * 12)); if (moving) st.walk += Math.min(speed, 12) * dt * 1.75;
+      const isPlayer = e.id === this.playerId;
+      const moving = isPlayer ? updateLocomotion(st, speed, dt, e.alive, teleported) : e.alive && !teleported && speed > .6;
+      if (!isPlayer) st.move += ((moving ? 1 : 0) - st.move) * (1 - Math.exp(-dt * 12));
+      if (moving) st.walk += Math.min(speed, 12) * dt * 1.75;
       st.yaw += angDiff(e.facing || 0, st.yaw) * (1 - Math.exp(-dt * 14));
       if ((e.attackFlash || 0) > st.flash + .05) st.atk = 0; st.flash = e.attackFlash || 0;
       if (st.atk >= 0) { st.atk += dt / .42; if (st.atk >= 1) st.atk = -1; }

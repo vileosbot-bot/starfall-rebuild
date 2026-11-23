@@ -255,13 +255,13 @@ function updateHUD(){
 }
 
 const tutorialSteps=[
-  {key:'move',title:'移动',text:'按 W A S D 移动，或鼠标右键点地面；手机拖左下摇杆。'},
-  {key:'attack',title:'普攻',text:'右键点敌人，或按空格 / 右下角普攻键打最近的目标。'},
-  {key:'skill',title:'技能',text:'Q / E / R 放技能；触屏轻点即放，拖动可瞄准。'},
-  {key:'shop',title:'装备',text:'金币够了点小地图下方的钱袋（P）买装备，默认自动推荐出装。'},
-  {key:'push',title:'推塔',text:'跟著小兵依次推掉三座塔，破高地后拆水晶。B 回城、F 闪现、G 治疗。'}
+  {key:'move',title:'移动',text:'按 W A S D 移动，或鼠标右键点地面。',touchText:'拖动左下角摇杆移动英雄，松开摇杆停止。'},
+  {key:'attack',title:'普攻',text:'右键点敌人，或按空格 / 右下角普攻键攻击最近目标。',touchText:'轻点敌方单位或右下角普攻按钮，攻击最近的目标。'},
+  {key:'skill',title:'技能',text:'按 Q / E / R 进入技能瞄准，再点击释放。',touchText:'轻点技能按钮施放；按住并拖动技能按钮可调整瞄准方向。'},
+  {key:'shop',title:'装备',text:'点击小地图下方的钱袋（P）打开商店，购买装备。',touchText:'点击小地图下方的钱袋打开商店，选择装备购买。'},
+  {key:'push',title:'推塔',text:'跟随小兵依次摧毁三座塔，破高地后拆水晶。B 回城、F 闪现、G 治疗。',touchText:'跟随己方小兵推进，依次摧毁防御塔与水晶；使用右侧技能按钮作战。'}
 ];
-function showTutorial(){if(tutorialStep>=tutorialSteps.length){$('#tutorial').hidden=true;return;}const t=tutorialSteps[tutorialStep];$('#tutorial').hidden=false;$('#tutorial-title').textContent=t.title;$('#tutorial-text').textContent=t.text;$('#tutorial-steps').textContent=`${tutorialStep+1}/${tutorialSteps.length}`;$('#tutorial-next').textContent=tutorialStep===tutorialSteps.length-1?'开始战斗':'下一步';}
+function showTutorial(){if(tutorialStep>=tutorialSteps.length){$('#tutorial').hidden=true;return;}const t=tutorialSteps[tutorialStep],touch=matchMedia('(pointer: coarse)').matches||navigator.maxTouchPoints>0;$('#tutorial').classList.toggle('touch',touch);$('#tutorial').hidden=false;$('#tutorial-title').textContent=t.title;$('#tutorial-text').textContent=touch?(t.touchText||t.text):t.text;$('#tutorial-steps').textContent=`${tutorialStep+1}/${tutorialSteps.length}`;$('#tutorial-next').textContent=tutorialStep===tutorialSteps.length-1?'开始战斗':'下一步';}
 function advanceTutorial(key){if(!settings.tutorial||$('#tutorial').hidden)return;if(tutorialSteps[tutorialStep]?.key===key){tutorialStep++;showTutorial();}}
 $('#tutorial-next').addEventListener('click',()=>{tutorialStep++;showTutorial();});$('#close-tutorial').addEventListener('click',()=>$('#tutorial').hidden=true);
 
@@ -289,6 +289,21 @@ function openJournal(){
 }
 $$('[data-action]').forEach(btn=>btn.addEventListener('click',()=>({settings:openSettings,help:openHelp,journal:openJournal}[btn.dataset.action])()));
 $('#pause-button').addEventListener('click',openSettings);
+async function toggleBattleFullscreen(){
+  try{
+    if(document.fullscreenElement){await document.exitFullscreen();return;}
+    if(!battle.requestFullscreen){notify('当前浏览器不支持全屏显示');return;}
+    await battle.requestFullscreen({navigationUI:'hide'});
+  }catch{notify('全屏请求被浏览器拒绝');}
+}
+function syncFullscreenButton(){
+  const active=document.fullscreenElement===battle,button=$('#fullscreen-button');
+  button.setAttribute('aria-pressed',String(active));
+  button.setAttribute('aria-label',active?'退出全屏':'切换全屏');
+  button.title=active?'退出全屏（Esc）':'切换全屏';
+}
+$('#fullscreen-button').addEventListener('click',()=>{clickSound();toggleBattleFullscreen();});
+document.addEventListener('fullscreenchange',()=>{syncFullscreenButton();resize();});
 
 const shopCategories=[['全部','全部'],['推荐','推荐'],['attack','攻击'],['magic','法术'],['defense','防御'],['boots','移动']];
 function openShop(){
@@ -333,6 +348,7 @@ function showResult(){
 window.addEventListener('keydown',e=>{
   if(e.target.matches('input,textarea,select'))return;
   const key=e.key.toLowerCase();
+  if(key==='escape'&&document.fullscreenElement)return;
   if(['tab',' ','arrowup','arrowdown','arrowleft','arrowright'].includes(key))e.preventDefault();
   if(e.repeat&&key!==' ')return;
   if(key==='escape'){

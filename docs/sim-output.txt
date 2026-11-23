@@ -1,0 +1,6 @@
+
+> starfall-web-rebuild@2.0.0 sim
+> node tests/tools-fullsim.mjs both 1122 mage
+
+{"kind":"ai","seed":1122,"heroId":"mage","winner":"blue","time":748.6,"mmss":"12:28","score":"25:29","cores":{"blue":8630,"red":0},"towersLost":{"blue":5,"red":5},"levels":{"blue":"12/8/15/12/15","red":"12/12/12/13/15"},"peak":76}
+{"kind":"afk","seed":1122,"heroId":"mage","winner":"blue","time":752.37,"mmss":"12:32","score":"33:20","cores":{"blue":19000,"red":0},"towersLost":{"blue":5,"red":3},"levels":{"blue":"1/11/11/15/15","red":"14/9/14/11/15"},"peak":78}

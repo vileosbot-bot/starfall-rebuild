@@ -287,8 +287,10 @@ export function stoneTexture(size = 512, cells = 8) {
     const fx = x / size * cells, fy = y / size * cells, cx = Math.floor(fx), cy = Math.floor(fy); let d1 = 9, d2 = 9, best = null;
     for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const p = P(cx + i, cy + j), dx = cx + i - ((cx + i) % cells + cells) % cells + p[0] - fx, dy = cy + j - ((cy + j) % cells + cells) % cells + p[1] - fy, d = Math.hypot(dx, dy); if (d < d1) { d2 = d1; d1 = d; best = p; } else if (d < d2) d2 = d; }
     const edge = d2 - d1, grout = smooth(.03, .1, edge), tone = best[2], speck = .94 + .12 * r(), bevel = 1 - .1 * (1 - smooth(0, .3, edge)) * (best[3] > .5 ? 1 : 0);
+    const veinX = Math.abs(Math.sin((fx * 5.7 + Math.sin(fy * 3.2) * .24) * Math.PI * 2)), veinY = Math.abs(Math.sin((fy * 6.1 + Math.sin(fx * 2.7) * .22) * Math.PI * 2));
+    const vein = 1 - smooth(.008, .075, Math.min(veinX, veinY)), pit = r() > .997 ? .76 : 1;
     const c = [lerp(.60, .77, tone), lerp(.57, .73, tone), lerp(.51, .65, tone)], o = (y * size + x) * 4;
-    for (let k = 0; k < 3; k++) data[o + k] = Math.round(255 * lerp([.40, .39, .35][k], c[k] * speck * bevel, grout));
+    for (let k = 0; k < 3; k++) data[o + k] = Math.round(255 * lerp([.40, .39, .35][k], c[k] * speck * bevel * (1 - vein * .045) * pit, grout));
     data[o + 3] = 255;
   }
   return { data, size };

@@ -2546,21 +2546,20 @@ const MONSTERS = {
 // Building max HP, hero stats, items, economy and win logic are NOT pacing levers and are untouched.
 // ---------------------------------------------------------------------------
 const PACING = {
-  // Early "fortification": incoming damage multiplier on structures, per tower tier (core uses `core`).
-  // Holds at `mult` until `holdUntil` seconds, then fades linearly to 1 (no reduction) at `fadeEnd`.
-  // Outer (tier 1) towers are never fortified, so first-tower timing and the 40% no-minion rule are unchanged.
+  // Only a short 10% mitigation remains on later structures; the former 60-80% reductions are removed.
+  // The main late-match pacing lever is the 11-minute minion growth ramp below.
   fortify: {
     1: { mult: 1, holdUntil: 0, fadeEnd: 0 },
-    2: { mult: .4, holdUntil: 600, fadeEnd: 840 },
-    3: { mult: .25, holdUntil: 720, fadeEnd: 960 },
-    core: { mult: .2, holdUntil: 780, fadeEnd: 1020 }
+    2: { mult: .9, holdUntil: 600, fadeEnd: 720 },
+    3: { mult: .9, holdUntil: 660, fadeEnd: 780 },
+    core: { mult: .9, holdUntil: 660, fadeEnd: 780 }
   },
   unaccompaniedMult: .4,        // structure damage multiplier with no attacking minion within 10 units (unchanged)
-  structureRampStart: 900,      // s: late-game structure damage escalation starts (was 660)
-  structureRampPerMin: .3,      // +x structure damage per minute after structureRampStart (was .2)
-  minionOvertimeStart: 900,     // s: minion hp/ad overtime scaling starts (was 660)
-  minionOvertimePerMin: .3,     // +x minion hp/ad per minute after minionOvertimeStart (was .22)
-  groupPushAt: 780,             // s: AI heroes leave lanes/jungle and group on the weakest lane (was 390)
+  structureRampStart: 900,      // s: defer the structure damage ramp until 15 minutes
+  structureRampPerMin: .2,      // +x structure damage per minute after structureRampStart
+  minionOvertimeStart: 660,     // s: minion growth begins after 11 minutes
+  minionOvertimePerMin: .235,   // small increase over the previous .22 coefficient
+  groupPushAt: 660,             // s: align AI grouping with the 11-minute minion growth phase
   coreRegenPerSec: 40,          // core hp regen when not hit for coreRegenDelay seconds (unchanged)
   coreRegenDelay: 8,            // (unchanged)
   // hero respawn = min(respawnMax, respawnBase + level * respawnPerLevel + max(0, t - respawnLateStart) / respawnLateDivisor) (all unchanged)

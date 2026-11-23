@@ -142,3 +142,11 @@ python3 serve.py     # 实玩；加 ?renderer=2d 看回退渲染
 - 视觉回归的像素比对在浏览器里解码完成（没有引入 PNG 库），阈值是我定的。
 - 两项浏览器用例在找不到 Playwright/Chromium 时选择跳过而不是失败。
 - `AGENTS.md` 与持久记忆都在工作区之外，按「不动工作区以外文件」的要求本轮没有写入；值得记的一条经验是「Canvas `filter: blur` / `shadowBlur` 在软件 GPU 上极慢，烘焙贴图要用无滤镜的缩小或 CPU 画布」。
+
+---
+
+## GPT-6 iteration delta (`starfall-gpt6pro-01`, 2026-11-22)
+
+The follow-on local implementation is documented in [`docs/GPT6PRO-ITERATION.md`](docs/GPT6PRO-ITERATION.md). It changes the camera target to 1/10, moves match pacing to an 11-minute minion-growth phase with only 10% temporary higher-tier structure mitigation, fixes the player-only gait blend at mixed simulation/render cadence, adds Fullscreen API controls, adds touch-specific tutorial copy and portrait/landscape HUD rules, and adds procedural model/texture/spell-circle detail.
+
+Local validation: `npm run check` exit 0; `npm test` 42 pass / 0 fail / 2 browser skips (44 total); `npm run sim` both scenarios finish by crystal destruction at 12:28.60 and 12:32.37. Browser screenshots and visual baseline regeneration remain unverified; the detailed report records the environment constraints and all outstanding acceptance items.
