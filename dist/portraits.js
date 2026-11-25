@@ -247,6 +247,13 @@ export function portraitURL(heroId) {
   return urls.get(heroId);
 }
 const ICONS={
+ impact:'<path d="M7 3L16 6L25 3V13L16 21L7 13ZM3 18L9 23L5 24M29 18L23 23L27 24M10 28H22"/>',
+ chord:'<path d="M9 23V7L23 4V20M9 10L23 7"/><ellipse cx="6" cy="24" rx="3" ry="2"/><ellipse cx="20" cy="21" rx="3" ry="2"/><path d="M3 30Q9 26 16 29T29 27"/>',
+ dash:'<path d="M2 10H11M2 16H8M3 22H11M11 6L26 16L11 26L16 16Z"/>',
+ pull:'<path d="M2 16H12L7 11M12 16L7 21M30 16H20L25 11M20 16L25 21"/><circle cx="16" cy="16" r="2"/>',
+ spin:'<path d="M25 10A11 11 0 1 0 26 21M26 4V11H19M10 18Q11 10 17 12T18 20"/>',
+ volley:'<path d="M5 5L12 18M11 14L12 19L7 17M13 3L21 18M20 14L21 19L16 17M21 5L29 20M28 16L29 21L24 19"/>',
+ fan:'<path d="M15 27L3 9L9 12ZM16 24L14 3L19 7ZM18 27L27 8L28 14Z"/>',
  sword:'<path d="M8 24L21 5L27 3L27 9L14 28M7 19L18 30M5 29L9 25"/>',
  axe:'<path d="M8 29L24 6M17 7L22 3L29 7L27 16L22 18L20 13L16 13L13 9Z"/>',
  shield:'<path d="M16 3L28 8L26 20L16 29L6 20L4 8Z"/><path d="M16 8V23M10 14H22"/>',

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#070b16">
   <meta name="description" content="星陨战纪 Web 复刻版。选择五位英雄，加入一名玩家与九位 AI 的三路对决。支持键鼠与触屏，纯浏览器运行。">
   <title>星陨战纪 · Starfall</title>
@@ -170,8 +171,8 @@
 .sk-flash .sk-face{background:radial-gradient(circle at 38% 28%,#3b3a22,#15140a)}
 .sk-heal .sk-face{background:radial-gradient(circle at 38% 28%,#58d06a,#1d7a33)}
 .sk-recall .sk-face{background:radial-gradient(circle at 38% 28%,#57a8f0,#1c4f9e)}
-.sk-e .sk-face{background:radial-gradient(circle at 38% 28%,#3fb9b0,#14595a)}
-.sk-q .sk-face{background:radial-gradient(circle at 38% 28%,#e0584a,#7a1a14)}
+.sk-move .sk-face{background:radial-gradient(circle at 38% 28%,#3fb9b0,#14595a)}
+.sk-burst .sk-face{background:radial-gradient(circle at 38% 28%,#e0584a,#7a1a14)}
 .sk-r .sk-face{width:calc(var(--sk) * 1.16);background:radial-gradient(circle at 38% 28%,#9a6ae6,#3a1f7a)}
 .sk-attack .sk-face{width:calc(var(--sk) * 1.62);border-width:3px;background:radial-gradient(circle at 38% 28%,#4a4226,#17130a)}
 .sk .cooldown{position:absolute;inset:0;display:grid;place-items:center;font-size:calc(var(--sk) * .5);font-weight:800;color:#fff;text-shadow:0 2px 4px #000;font-variant-numeric:tabular-nums;pointer-events:none}
@@ -235,25 +236,57 @@
   .toast{top:calc(max(8px,env(safe-area-inset-top)) + 148px)}
 }
 
-/* Portrait: top row stays single-line; tutorial and hero card occupy separate bands. */
-@media(orientation:portrait){
-  .scorebar{left:50%;right:auto;transform:translateX(-50%)}
-  .hud-top-right{top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));gap:4px;max-width:calc(100vw - 16px)}
-  .hud-top-right .kda{display:none}
-  .hud-top-right .gold-chip{min-width:0;padding:4px 6px;gap:3px;font-size:12px}
-  .hud-top-right .gold-chip span{font-size:15px}
-  .hud-top-right .icon-button{width:34px;height:34px;font-size:16px}
-  .objective{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 10px);max-width:calc(100vw - 24px)}
-  .tutorial-pill{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 58px);left:16px;right:16px;transform:none;width:auto;max-width:none;max-height:min(28vh,330px);overflow:auto;flex-wrap:wrap;justify-content:flex-start;gap:6px 10px;padding:9px 12px;border-radius:14px}
-  .tutorial-pill span{flex:1 1 100%;line-height:1.55}
-  .tutorial-pill button{padding:5px 9px}
-  .tutorial-pill.touch strong{color:#9fe4f1}
-  .kill-banner{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 180px);max-width:calc(100vw - 28px);min-width:0;padding:5px 9px;gap:6px;font-size:13px}
-  .toast{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 248px)}
-  .hero-card-hud{bottom:calc(max(22px,env(safe-area-inset-bottom)) + var(--sk) * 6.9 + 32px);width:min(88vw,680px);min-width:0;left:50%;transform:translateX(-50%)}
+.start-options{display:grid;grid-template-columns:2fr 1fr;gap:8px}
+.start-options .start-button{font-size:clamp(16px,2.8vmin,25px);white-space:nowrap}
+.start-button small{margin-left:.4em;font-size:.5em}
+#ios-hint{display:block;margin-top:6px;text-align:center;color:#d2d9e8}
+
+/* The two wrappers preserve input bindings. Named cells keep the attack thumb free. */
+.skill-cluster{display:grid;grid-template-areas:". . flash" "heal ultimate move" "recall burst attack";grid-template-columns:var(--sk) calc(var(--sk)*1.2) calc(var(--sk)*1.62);align-items:end;justify-items:center;gap:4px 6px;pointer-events:none}
+.sc-col,.sc-main{display:contents}
+.skill-cluster button{pointer-events:auto}
+.sk-flash{grid-area:flash}.sk-heal{grid-area:heal}.sk-recall{grid-area:recall}
+.sk-e{grid-area:move}.sk-q{grid-area:burst}.sk-r{grid-area:ultimate}.sk-attack{grid-area:attack}
+.sk-flash .sk-face,.sk-heal .sk-face,.sk-recall .sk-face{width:calc(var(--sk)*.84)}
+.hud-top-right .kda{display:flex;flex-direction:row;align-items:center;gap:7px;padding:4px 7px;white-space:nowrap;letter-spacing:0;font-variant-numeric:tabular-nums}
+.kda span{display:inline-flex;gap:3px;align-items:center}
+.kda svg{width:1em;height:1em;color:#e2b861}
+.hc-stats{flex-wrap:wrap;overflow:visible;gap:1px 7px}
+@media(orientation:landscape) and (max-height:530px){
   .hc-side .inventory{display:grid}
-  .hc-side .inventory button{width:20px;height:20px}
-  .skill-cluster{right:max(10px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom))}
+  .hc-side .inventory button{width:17px;height:17px}
+  .hero-card-hud{width:min(44vw,440px);gap:6px}
+  .hc-stats strong{flex-basis:100%;font-size:11px}
+}
+@media(orientation:portrait){
+  .hud{--sk:clamp(35px,10vw,57px);--map:clamp(72px,21vw,145px);--top:max(6px,env(safe-area-inset-top));--edge:max(6px,env(safe-area-inset-right));--above-card:calc(max(7px,env(safe-area-inset-bottom)) + 77px)}
+  .mini-wrap{top:var(--top);left:max(6px,env(safe-area-inset-left));width:var(--map)}
+  .mini-tools{gap:2px}.mini-tools .bag-button{padding:1px 5px 1px 1px;height:27px;font-size:11px}.mini-tools .mini-follow{width:25px}
+  .scorebar{top:var(--top);left:auto;right:var(--edge);transform:none}
+  .sb-team{gap:3px;padding:1px 6px}.sb-team b,.sb-clock b{font-size:16px}.sb-clock{padding:1px 8px}
+  .hud-top-right{top:calc(var(--top) + 43px);right:var(--edge);gap:3px}
+  .hud-top-right .kda{padding:3px;font-size:11px;gap:4px}
+  .hud-top-right .icon-button{width:27px;height:27px;font-size:14px}.hud-top-right .icon-button small{display:none}
+  .hud-top-right .gold-chip{min-width:0;padding:3px 5px;font-size:11px;gap:2px}
+  .objective,.tutorial-pill{left:calc(max(6px,env(safe-area-inset-left)) + var(--map) + 8px);right:var(--edge);transform:none;width:auto;max-width:none;font-size:11px}
+  .objective{top:calc(var(--top) + 75px);gap:3px;padding:3px 5px;border-radius:6px;white-space:normal}
+  .objective span{padding:1px 4px;font-size:10px}.objective b{line-height:1.25}
+  .tutorial-pill{top:calc(var(--top) + 115px);display:grid;grid-template-columns:auto 1fr auto auto;gap:3px;padding:5px;border-radius:7px}
+  .tutorial-pill span{grid-column:1/-1;grid-row:2;line-height:1.3}
+  .tutorial-pill button{grid-row:1;font-size:10px;padding:3px 5px}
+  .killfeed{top:calc(var(--top) + 180px)}
+  .kill-banner{top:calc(var(--top) + 180px);max-width:95vw}
+  .toast{top:calc(var(--top) + 230px)}
+  .hero-card-hud{width:min(95vw,490px);min-width:0;bottom:max(4px,env(safe-area-inset-bottom));gap:7px;padding:4px 7px}
+  .hc-portrait{width:35px}.hc-stats{font-size:9px}.hc-stats strong{font-size:11px}.hc-side{gap:2px}.hc-side .inventory button{width:15px;height:15px}.hc-gold{font-size:10px}
+  .vstick{width:clamp(80px,24vw,140px);left:max(8px,env(safe-area-inset-left));bottom:var(--above-card)}
+  .skill-cluster{right:var(--edge);bottom:var(--above-card);gap:3px 4px}
+}
+.hc-gold,.hc-gold *{pointer-events:none}
+
+@media(orientation:portrait){
+  .tutorial-pill>b{grid-area:1/1}.tutorial-pill>strong{grid-area:1/2}
+  #tutorial-next{grid-area:1/3}#close-tutorial{grid-area:1/4}
 }
 
 </style>
@@ -274,7 +307,8 @@
         <p class="tagline">坠星召来历代英杰 · 5v5 对决</p>
       </div>
       <div class="home-menu">
-        <button class="primary start-button" id="start">开始对战</button>
+        <div class="start-options"><button class="primary start-button" id="start">横屏全屏开始<small>推荐</small></button><button class="secondary" id="portrait-start">竖屏游玩</button></div>
+        <small id="ios-hint" hidden>旋转手机横屏游玩，或从 Safari 分享菜单添加到主屏幕。</small>
         <label class="tutorial-toggle"><input type="checkbox" id="tutorial-toggle" checked><span>新手引导</span><small>（第一次玩建议打开）</small></label>
         <div class="home-actions"><button class="secondary" data-action="help"><span class="button-icon">⌨</span>操作说明</button><button class="secondary" data-action="journal"><span class="button-icon">▤</span>对战记录</button><button class="secondary" data-action="settings"><span class="button-icon">⚙</span>设置</button></div>
       </div>
@@ -293,20 +327,20 @@
         <div class="scorebar" id="scorebar"><div class="sb-team blue"><i class="sb-icon">⚔</i><span>蓝</span><b id="blue-score">0</b></div><div class="sb-clock"><b id="match-time">00:00</b></div><div class="sb-team red"><b id="red-score">0</b><span>红</span><i class="sb-icon">⚔</i></div><small class="sb-wave" id="wave-time">10秒</small></div>
         <div class="objective" id="objective"><span>当前目标</span><b id="objective-text"></b></div>
         <div class="kill-banner" id="kill-banner" hidden><span class="kb-face" id="kb-killer"></span><em id="kb-first">首杀</em><b id="kb-text"></b><span class="kb-face" id="kb-victim"></span></div>
-        <div class="hud-top-right"><span class="kda"><b id="kda">0 / 0 / 0</b><small>战绩</small></span><button class="gold-chip" id="gold-chip" aria-label="打开商店"><span>◈</span><b id="gold">50</b></button><button class="icon-button" id="scoreboard-button" aria-label="战况">▤<small>Tab</small></button><button class="icon-button" id="fullscreen-button" aria-label="切换全屏" title="切换全屏" aria-pressed="false">⛶<small>全屏</small></button><button class="icon-button" id="pause-button" aria-label="暂停与设置">Ⅱ<small>Esc</small></button></div>
+        <div class="hud-top-right"><span class="kda"><span aria-label="击杀/死亡/助攻">⚔ <b id="kda">0/0/0</b></span><span title="小兵补刀" aria-label="小兵补刀"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 2l4 2h4l4-2-1 5 1 4-3 3H5l-3-3 1-4z"/><path stroke="#101829" stroke-width="2" d="M4 8l2 1m4 0 2-1"/></svg><b id="cs">0</b></span></span><button class="gold-chip" id="gold-chip" aria-label="打开商店"><span>◈</span><b id="gold">50</b></button><button class="icon-button" id="scoreboard-button" aria-label="战况">▤<small>Tab</small></button><button class="icon-button" id="fullscreen-button" aria-label="切换全屏" title="切换全屏" aria-pressed="false">⛶<small>全屏</small></button><button class="icon-button" id="pause-button" aria-label="暂停与设置">Ⅱ<small>Esc</small></button></div>
         <div class="team-strip" id="team-strip" aria-label="队友状态"></div>
         <div id="killfeed" class="killfeed" aria-live="polite"></div>
         <div id="announcement" class="announcement" aria-live="polite"></div>
         <div id="tutorial" class="tutorial-pill" hidden><b id="tutorial-steps"></b><strong id="tutorial-title"></strong><span id="tutorial-text"></span><button id="tutorial-next">下一步</button><button id="close-tutorial">跳过引导</button></div>
-        <div class="hero-card-hud" id="hero-card"><div class="hc-portrait"><span id="player-portrait"></span><b id="player-level">1</b></div><div class="hc-main"><div class="hc-stats"><strong id="player-name"></strong><span>物攻 <b id="stat-ad">0</b></span><span>护甲 <b id="stat-armor">0</b></span><span>魔抗 <b id="stat-mr">0</b></span><span>移速 <b id="stat-speed">0</b></span></div><div class="hc-bar hp"><i id="health-fill"></i><span id="health-text"></span></div><div class="hc-bar mp"><i id="mana-fill"></i><span id="mana-text"></span></div><div class="hc-xp"><i id="xp-fill"></i></div></div><div class="hc-side"><div class="inventory" id="inventory"></div><button class="hc-gold" id="shop-button" aria-label="打开商店（P）"><span>◈</span><b id="card-gold">50</b></button></div></div>
+        <div class="hero-card-hud" id="hero-card"><div class="hc-portrait"><span id="player-portrait"></span><b id="player-level">1</b></div><div class="hc-main"><div class="hc-stats"><strong id="player-name"></strong><span>物攻 <b id="stat-ad">0</b></span><span>护甲 <b id="stat-armor">0</b></span><span>魔抗 <b id="stat-mr">0</b></span><span>移速 <b id="stat-speed">0</b></span></div><div class="hc-bar hp"><i id="health-fill"></i><span id="health-text"></span></div><div class="hc-bar mp"><i id="mana-fill"></i><span id="mana-text"></span></div><div class="hc-xp"><i id="xp-fill"></i></div></div><div class="hc-side"><div class="inventory" id="inventory"></div><span class="hc-gold" aria-label="持有金币"><span>◈</span><b id="card-gold">50</b></span></div></div>
         <div class="vstick" id="joystick" aria-label="移动摇杆"><i class="jt n"></i><i class="jt e"></i><i class="jt s"></i><i class="jt w"></i><div class="vstick-knob" id="joystick-knob"></div></div>
         <div class="skill-cluster" id="skill-controls">
           <div class="sc-col">
             <button class="sk sk-flash" id="flash" aria-label="闪现（F）"><span class="sk-face"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 3Q27 21 45 24Q27 27 24 45Q21 27 3 24Q21 21 24 3Z" fill="#ffe08a" stroke="#a8741f" stroke-width="1.5"/><circle cx="24" cy="24" r="4" fill="#fff8dc"/></svg><b class="cooldown"></b></span><kbd>F</kbd><small>闪现</small></button>
             <button class="sk sk-heal" id="heal" aria-label="治疗（G）"><span class="sk-face"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M19 8h10v11h11v10H29v11H19V29H8V19h11z" fill="#ffffff"/></svg><b class="cooldown"></b></span><kbd>G</kbd><small>治疗</small></button>
             <button class="sk sk-recall" id="recall" aria-label="回城（B）"><span class="sk-face"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 4L37 19L24 44L11 19Z" fill="#bfe6ff" stroke="#ffffff" stroke-width="1.5"/><path d="M11 19h26M24 4v40" stroke="#5aa9e6" stroke-width="1.5" fill="none"/></svg><b class="cooldown"></b></span><kbd>B</kbd><small>回城</small></button>
-            <button class="sk sk-e sk-skill" data-skill="1" aria-label="二技能"><span class="sk-face"><span class="skill-art"></span><i class="sk-lock"></i><b class="cooldown"></b></span><kbd>E</kbd><small>位移</small></button>
-            <button class="sk sk-q sk-skill" data-skill="0" aria-label="一技能"><span class="sk-face"><span class="skill-art"></span><i class="sk-lock"></i><b class="cooldown"></b></span><kbd>Q</kbd><small>爆发</small></button>
+            <button class="sk sk-e sk-skill" data-skill="1" aria-label="二技能"><span class="sk-face"><span class="skill-art"></span><i class="sk-lock"></i><b class="cooldown"></b></span><kbd>E</kbd><small>二技能</small></button>
+            <button class="sk sk-q sk-skill" data-skill="0" aria-label="一技能"><span class="sk-face"><span class="skill-art"></span><i class="sk-lock"></i><b class="cooldown"></b></span><kbd>Q</kbd><small>一技能</small></button>
           </div>
           <div class="sc-main">
             <button class="sk sk-r sk-skill" data-skill="2" aria-label="大招"><span class="sk-face"><span class="skill-art"></span><i class="sk-lock"></i><b class="cooldown"></b></span><kbd>R</kbd><small>大招</small></button>
@@ -4489,6 +4523,26 @@ var World = class {
   }
 };
 
+// dist/display.js
+function canFullscreen(root) {
+  return typeof root.requestFullscreen === "function" && root.ownerDocument.fullscreenEnabled !== false;
+}
+async function enterLandscape(root, orientation, mobile) {
+  try {
+    if (!root.ownerDocument.fullscreenElement) {
+      if (!canFullscreen(root)) return false;
+      await root.requestFullscreen();
+    }
+    if (mobile) {
+      if (typeof orientation?.lock !== "function") return false;
+      await orientation.lock("landscape");
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // dist/render.js
 var DEPTH = Math.sin(46 * Math.PI / 180);
 var HEIGHT = Math.cos(46 * Math.PI / 180);
@@ -5929,14 +5983,27 @@ function cape(g, color, lining, w = 0.88, len = 1.08) {
 function plate(geo, pts, thick, m) {
   geo.at(M.chain(m, M.rotX(-Math.PI / 2))).prism(pts.map((p) => [p[0], p[1]]), -thick / 2, thick / 2).at(null);
 }
+function inlayBand(mesh2, band, highlight, facets, build) {
+  const start = mesh2.n;
+  build(mesh2.color(band));
+  const stride = (mesh2.n - start) / facets;
+  const rgb = hex(highlight).slice(0, 3);
+  for (let facet = 0; facet < facets; facet += 2) {
+    for (let i = start + facet * stride; i < start + (facet + 1) * stride; i += 10) {
+      mesh2.buf.set(rgb, i + 6);
+    }
+  }
+}
 function fighter() {
   const g = newGroups(), gold = "#e0a63c", iron = "#4a4650", red = "#cf2f22";
   body(g, { skin: "#f2c391", torso: gold, torso2: iron, belt: "#7a2a1c", chest: "#f1c257", arm: iron, glove: "#7a4a2a", leg: "#5a3a2a", boot: iron, shoulder: gold, bulk: 1.06 });
   for (let i = 0; i < 4; i++) g.body.color(i % 2 ? gold : "#b9822c").at(M.chain(M.rotY(i * TAU2 / 4 + TAU2 / 8), M.translate(0, 0.3, 0.36))).box(0.3, 0.26, 0.06).at(null);
+  g.body.color("#9d4d25").quad([-0.18, 1, 0.354], [0, 0.89, 0.397], [0.18, 1, 0.354], [0, 0.82, 0.397]);
   head(g, { skin: "#f2c391", cheek: "#e79a7b" });
-  helmet(g, iron, gold, 0.5);
-  g.head.color("#3a2a22").sphere(0.2, 0.13, 0.1, 0, HEAD_Y - 0.23, 0.3, 8, 4);
-  g.head.color(gold).cyl(0.05, 0.07, 0.16, 6, 0, HEAD_Y + 0.44, 0);
+  helmet(g, iron, null, 0.5);
+  inlayBand(g.head, gold, "#ffdc79", 12, (band) => band.cyl(0.48, 0.46, 0.1, 12, 0, HEAD_Y + 0.045, 0, { caps: false }));
+  g.head.color("#3a2a22").sphere(0.2, 0.13, 0.1, 0, HEAD_Y - 0.23, 0.3, 7, 4);
+  inlayBand(g.head, gold, "#fff0a8", 6, (band) => band.cyl(0.09, 0.07, 0.16, 6, 0, HEAD_Y + 0.44, 0));
   g.head.color(red).sphere(0.1, 0.2, 0.26, 0, HEAD_Y + 0.66, -0.1, 8, 6).sphere(0.07, 0.12, 0.2, 0, HEAD_Y + 0.5, -0.36, 6, 4);
   cape(g, red, "#8f1f18");
   const h = hand(1), m = M.chain(M.translate(h[0], h[1], h[2]), M.rotX(0.95));
@@ -5953,13 +6020,17 @@ function tank() {
   const g = newGroups(), steel = "#74808e", dark = "#48525e", gold = "#d9a441", brown = "#7a4e30";
   body(g, { skin: "#e9b98c", torso: steel, torso2: dark, belt: brown, chest: "#8c98a6", arm: dark, glove: brown, leg: "#4a3a30", boot: dark, shoulder: steel, bulk: 1.16 });
   head(g, { skin: "#e9b98c" });
-  helmet(g, steel, gold, 0.56);
+  helmet(g, steel, null, 0.56);
+  inlayBand(g.head, gold, "#f9d888", 12, (band) => band.cyl(0.48, 0.46, 0.09, 12, 0, HEAD_Y + 0.045, 0, { caps: false }));
   g.head.color(dark).box(0.1, 0.3, 0.08, 0, HEAD_Y - 0.12, 0.4);
   for (const s of [-1, 1]) g.head.color("#e8e0cc").at(M.chain(M.translate(s * 0.42, HEAD_Y + 0.2, 0), M.rotZ(-s * 0.9))).cyl(0.07, 0, 0.34, 6).at(null);
-  g.head.color("#4a3324").sphere(0.24, 0.16, 0.12, 0, HEAD_Y - 0.25, 0.28, 8, 4);
+  g.head.color("#4a3324").sphere(0.24, 0.16, 0.12, 0, HEAD_Y - 0.25, 0.28, 7, 4);
   cape(g, brown, "#5a3822", 0.8, 0.9);
   const hl = hand(-1), sm = M.chain(M.translate(hl[0] - 0.12, hl[1] + 0.12, hl[2] + 0.2), M.rotY(-0.25));
   g.armL.color(steel).at(sm).box(0.78, 1.05, 0.09, 0, -0.5, 0).color(gold).box(0.84, 0.1, 0.11, 0, 0.5, 0).box(0.84, 0.1, 0.11, 0, -0.52, 0).box(0.1, 1.05, 0.11, -0.38, -0.5, 0).box(0.1, 1.05, 0.11, 0.38, -0.5, 0).at(M.chain(sm, M.translate(0, 0, 0.06), M.rotX(Math.PI / 2))).cyl(0.2, 0.1, 0.1, 8).at(null);
+  for (const side of [-1, 1]) {
+    g.armL.color("#314256").at(sm).quad([0, 0.28, 0.052], [side * 0.29, 0.38, 0.052], [side * 0.24, 0.25, 0.052], [0, 0.13, 0.052]).at(null);
+  }
   const hr = hand(1), wm = M.chain(M.translate(hr[0], hr[1], hr[2]), M.rotX(0.8));
   g.armR.color("#5d4630").at(wm).cyl(0.05, 0.05, 1, 6, 0, -0.2, 0).color(dark).cyl(0.2, 0.2, 0.34, 8, 0, 0.72, 0).color(gold).cyl(0.22, 0.22, 0.06, 8, 0, 0.86, 0).at(null);
   return { groups: g, pivots: PIVOTS, height: 2.4, style: { attack: "swing", armBase: -0.4, shield: true } };
@@ -5967,23 +6038,27 @@ function tank() {
 function mage() {
   const g = newGroups(), indigo = "#4353b4", cream = "#f6f0e6", red = "#c8324a";
   body(g, { skin: "#fbe0cf", torso: cream, torso2: indigo, belt: red, arm: indigo, leg: cream, boot: indigo, robe: indigo, bulk: 0.92 });
-  g.body.color("#8fb7ff").cyl(0.58, 0.56, 0.05, 12, 0, 0.04, 0, { caps: false });
+  inlayBand(g.body, "#7d9fe4", "#e6edff", 12, (hem) => hem.cyl(0.58, 0.54, 0.11, 12, 0, 0.04, 0, { caps: false }));
   head(g, { skin: "#fbe0cf", cheek: "#f4a9a9" });
   g.head.color("#231c2c").sphere(HEAD_R + 0.05, HEAD_R + 0.05, HEAD_R + 0.05, 0, HEAD_Y + 0.02, -0.03, 12, 6, 0, 0.5);
   g.head.sphere(0.3, 0.62, 0.16, 0, HEAD_Y - 0.5, -0.36, 8, 6).sphere(0.17, 0.17, 0.17, 0, HEAD_Y + 0.5, -0.05, 8, 5);
   g.head.color(red).sphere(0.07, 0.07, 0.07, 0.2, HEAD_Y + 0.42, 0.12, 6, 4).color("#f3d27a").cyl(0.02, 0.02, 0.5, 5, -0.25, HEAD_Y + 0.35, -0.05);
   cape(g, cream, "#c9d6f5", 0.8, 1);
   const h = hand(-1), m = M.chain(M.translate(h[0] + 0.2, h[1] + 0.25, h[2] + 0.26), M.rotZ(-0.5), M.rotX(0.15));
-  g.armL.color("#a66a3a").at(m).sphere(0.24, 0.32, 0.09, 0, 0, 0, 10, 6).color("#6f4324").cyl(0.045, 0.04, 0.6, 6, 0, 0.25, 0).color("#f3d27a").box(0.2, 0.05, 0.06, 0, 0.82, 0).color(hex("#bfe4ff", 0.9)).box(0.16, 0.03, 0.03, 0, -0.08, 0.09).at(null);
+  g.armL.color("#a66a3a").at(m).sphere(0.24, 0.32, 0.09, 0, 0, 0, 9, 6).color("#6f4324").cyl(0.045, 0.04, 0.6, 6, 0, 0.25, 0).color("#f3d27a").box(0.2, 0.05, 0.06, 0, 0.82, 0).color(hex("#bfe4ff", 0.9)).box(0.16, 0.03, 0.03, 0, -0.08, 0.09).at(null);
+  for (const x of [-0.046, 0, 0.046]) {
+    g.armL.color("#ffe4ab").at(m).quad([x - 5e-3, -0.07, 0.097], [x + 5e-3, -0.07, 0.097], [x * 0.55 + 5e-3, 0.79, 0.048], [x * 0.55 - 5e-3, 0.79, 0.048]).at(null);
+  }
   return { groups: g, pivots: PIVOTS, height: 2.3, style: { attack: "cast", armBase: -0.9, armLBase: -0.75 } };
 }
 function marksman() {
   const g = newGroups(), teal = "#2f8f8a", cream = "#e9e2cf", gold = "#c99a45", leather = "#7b5433";
   body(g, { skin: "#f0c79c", torso: teal, torso2: leather, belt: gold, chest: "#3aa39c", arm: teal, glove: leather, leg: cream, boot: leather, shoulder: leather });
+  g.body.color(leather).quad([-0.26, 1.09, 0.26], [-0.19, 1.11, 0.3], [0.07, 0.83, 0.389], [0.01, 0.8, 0.389]).quad([0.01, 0.8, 0.389], [0.07, 0.83, 0.389], [0.28, 0.6, 0.25], [0.23, 0.56, 0.27]);
   head(g, { skin: "#f0c79c" });
   g.head.color("#2b2422").sphere(HEAD_R + 0.04, HEAD_R + 0.04, HEAD_R + 0.04, 0, HEAD_Y + 0.02, -0.02, 12, 6, 0, 0.47);
-  g.head.color(gold).cyl(HEAD_R + 0.05, HEAD_R + 0.05, 0.08, 12, 0, HEAD_Y + 0.1, 0, { caps: false });
-  g.head.color("#2b2422").sphere(0.12, 0.12, 0.12, 0, HEAD_Y + 0.5, -0.08, 6, 4).color("#eaf7f0").at(M.chain(M.translate(0.1, HEAD_Y + 0.52, -0.1), M.rotZ(-0.5))).cyl(0.03, 0, 0.4, 5).at(null);
+  inlayBand(g.head, gold, "#f2e7bf", 12, (band) => band.cyl(0.47, 0.46, 0.1, 12, 0, HEAD_Y + 0.1, 0, { caps: false }));
+  g.head.color("#2b2422").sphere(0.12, 0.12, 0.12, 0, HEAD_Y + 0.5, -0.08, 5, 4).color("#eaf7f0").at(M.chain(M.translate(0.1, HEAD_Y + 0.52, -0.1), M.rotZ(-0.5))).cyl(0.03, 0, 0.4, 5).at(null);
   g.body.color(leather).at(M.chain(M.translate(0.22, 0.75, -0.36), M.rotZ(0.35))).cyl(0.11, 0.12, 0.62, 8).color("#eaf7f0").cyl(0.09, 0.02, 0.16, 6, 0, 0.62, 0).at(null);
   cape(g, teal, "#1f5f5c", 0.7, 0.8);
   const h = hand(-1), m = M.chain(M.translate(h[0], h[1], h[2] + 0.08));
@@ -6000,10 +6075,11 @@ function assassin() {
   const g = newGroups(), black = "#2a2538", violet = "#4a3e6e", white = "#ece8de", glow = "#b48cff";
   body(g, { skin: "#f1d2b6", torso: black, torso2: violet, belt: glow, arm: black, glove: violet, leg: black, boot: "#1c1926", shoulder: violet, bulk: 0.95 });
   head(g, { skin: "#f1d2b6" });
-  g.head.color(white).sphere(HEAD_R + 0.05, HEAD_R + 0.06, HEAD_R + 0.05, 0, HEAD_Y + 0.02, -0.03, 12, 6, 0, 0.5);
+  g.head.color(white).sphere(HEAD_R + 0.05, HEAD_R + 0.06, HEAD_R + 0.05, 0, HEAD_Y + 0.02, -0.03, 12, 5, 0, 0.5);
   for (let i = 0; i < 5; i++) g.head.at(M.chain(M.translate(0, HEAD_Y + 0.2, 0), M.rotY(i * 1.1 + 2.2), M.rotX(1.9))).cyl(0.14, 0, 0.5, 5).at(null);
   g.head.color(black).cyl(HEAD_R + 0.02, HEAD_R + 0.02, 0.16, 12, 0, HEAD_Y - 0.3, 0, { caps: false });
-  g.body.color(white).cyl(0.3, 0.36, 0.14, 10, 0, 1.14, 0);
+  inlayBand(g.body, white, "#ada3cb", 10, (scarf) => scarf.cyl(0.33, 0.38, 0.17, 10, 0, 1.12, 0));
+  g.body.color("#87789c").quad([-0.23, 1.1, 0.2], [-0.18, 1.13, 0.24], [0.21, 0.66, 0.25], [0.16, 0.63, 0.27]);
   cape(g, white, "#c9c2d8", 0.5, 0.95);
   for (const s of [-1, 1]) {
     const h = hand(s), m = M.chain(M.translate(h[0], h[1], h[2]), M.rotX(1.45)), arm = s < 0 ? g.armL : g.armR;
@@ -7739,6 +7815,13 @@ function portraitURL(heroId) {
   return urls.get(heroId);
 }
 var ICONS = {
+  impact: '<path d="M7 3L16 6L25 3V13L16 21L7 13ZM3 18L9 23L5 24M29 18L23 23L27 24M10 28H22"/>',
+  chord: '<path d="M9 23V7L23 4V20M9 10L23 7"/><ellipse cx="6" cy="24" rx="3" ry="2"/><ellipse cx="20" cy="21" rx="3" ry="2"/><path d="M3 30Q9 26 16 29T29 27"/>',
+  dash: '<path d="M2 10H11M2 16H8M3 22H11M11 6L26 16L11 26L16 16Z"/>',
+  pull: '<path d="M2 16H12L7 11M12 16L7 21M30 16H20L25 11M20 16L25 21"/><circle cx="16" cy="16" r="2"/>',
+  spin: '<path d="M25 10A11 11 0 1 0 26 21M26 4V11H19M10 18Q11 10 17 12T18 20"/>',
+  volley: '<path d="M5 5L12 18M11 14L12 19L7 17M13 3L21 18M20 14L21 19L16 17M21 5L29 20M28 16L29 21L24 19"/>',
+  fan: '<path d="M15 27L3 9L9 12ZM16 24L14 3L19 7ZM18 27L27 8L28 14Z"/>',
   sword: '<path d="M8 24L21 5L27 3L27 9L14 28M7 19L18 30M5 29L9 25"/>',
   axe: '<path d="M8 29L24 6M17 7L22 3L29 7L27 16L22 18L20 13L16 13L13 9Z"/>',
   shield: '<path d="M16 3L28 8L26 20L16 29L6 20L4 8Z"/><path d="M16 8V23M10 14H22"/>',
@@ -8187,6 +8270,10 @@ function killBanner(world2, e) {
   const text = victim.id === p.id ? killer ? `\u654C\u65B9${killer.name} \u51FB\u6740\u4E86\u4F60` : "\u4F60\u5DF2\u9635\u4EA1" : killer?.id === p.id ? `\u4F60 \u51FB\u6740\u4E86 \u654C\u65B9${victim.name}` : killer ? `${side(killer.team)}${killer.name} \u51FB\u6740\u4E86 ${side(victim.team)}${victim.name}` : `${side(victim.team)}${victim.name} \u9635\u4EA1`;
   return { text, tone: mine ? "ally" : "enemy", first: !!e.firstBlood, killerHeroId: killer?.heroId || null, victimHeroId: victim.heroId || null };
 }
+function renderCombatRecord(player, kda, lastHits) {
+  kda.textContent = `${player.kills}/${player.deaths}/${player.assists}`;
+  lastHits.textContent = String(player.cs);
+}
 
 // dist/app.js
 var $ = (s) => document.querySelector(s);
@@ -8199,7 +8286,13 @@ var fmt = (n) => {
 };
 var getHero = (id) => HEROES.find((h) => h.id === id) || HEROES[0];
 var getItem = (id) => ITEMS.find((i) => i.id === id);
-var skillIcons = { tank: ["shield", "armor", "tower"], fighter: ["axe", "attack", "flame"], mage: ["wave", "snow", "magic"], marksman: ["bow", "crosshair", "spear"], assassin: ["dagger", "attack", "cloak"] };
+var skillDisplay = {
+  fighter: [["axe", "\u7206\u53D1"], ["dash", "\u4F4D\u79FB"], ["spin", "\u5927\u62DB"]],
+  tank: [["dash", "\u4F4D\u79FB"], ["shield", "\u62A4\u76FE"], ["impact", "\u5927\u62DB"]],
+  mage: [["wave", "\u97F3\u6CE2"], ["pull", "\u805A\u654C"], ["chord", "\u5927\u62DB"]],
+  marksman: [["bow", "\u91CD\u7BAD"], ["dash", "\u4F4D\u79FB"], ["volley", "\u5927\u62DB"]],
+  assassin: [["dash", "\u4F4D\u79FB"], ["fan", "\u98DE\u5315"], ["dagger", "\u5927\u62DB"]]
+};
 var lanes = { top: "\u4E0A\u8DEF", mid: "\u4E2D\u8DEF", bot: "\u4E0B\u8DEF", jungle: "\u6253\u91CE" };
 var storage = { read(key, fallback) {
   try {
@@ -8351,13 +8444,13 @@ function renderRoster() {
   }));
 }
 var SLOT_NAMES = ["\u4E00\u6280\u80FD", "\u4E8C\u6280\u80FD", "\u5927\u62DB"];
-function skillTags(s) {
+function skillTags(s, label) {
   const v = s.values || {}, tags = [];
-  if (v.damage) tags.push(s.key === "R" ? "\u5927\u62DB" : "\u7206\u53D1");
-  if (v.dashSpeed || v.leapTime) tags.push("\u4F4D\u79FB");
+  tags.push(label);
+  if (label !== "\u4F4D\u79FB" && (v.dashSpeed || v.leapTime || v.vanish)) tags.push("\u4F4D\u79FB");
   if (v.slow) tags.push("\u51CF\u901F");
   if (v.knockup || v.stun) tags.push("\u63A7\u5236");
-  if (v.shield) tags.push("\u62A4\u76FE");
+  if (v.shield && label !== "\u62A4\u76FE") tags.push("\u62A4\u76FE");
   if (v.haste || v.asBonus) tags.push("\u52A0\u901F");
   if (v.reduction) tags.push("\u51CF\u4F24");
   tags.push({ cone: "\u9762\u524D\u4E00\u7247\u6247\u5F62", direction: "\u76F4\u7EBF\u65B9\u5411", position: "\u6307\u5B9A\u533A\u57DF", self: "\u8EAB\u8FB9\u4E00\u5708", target: "\u6307\u5B9A\u654C\u65B9\u82F1\u96C4" }[s.castType] || "");
@@ -8365,7 +8458,7 @@ function skillTags(s) {
 }
 var span = (a) => Array.isArray(a) ? a[0] === a[a.length - 1] ? `${a[0]}` : `${a[0]}~${a[a.length - 1]}` : `${a}`;
 function skillNumbers(h, s) {
-  const v = s.values || {}, parts = [], kind = h.damageType === "magic" ? "\u6CD5\u672F" : "\u7269\u7406";
+  const v = s.values || {}, parts = [], kind = h.id === "tank" && s === h.skills[1] || h.damageType === "magic" ? "\u6CD5\u672F" : "\u7269\u7406";
   if (v.damage) {
     const ratio = v.adRatio ? `(+${Math.round(v.adRatio * 100)}%\u7269\u653B)` : v.apRatio ? `(+${Math.round(v.apRatio * 100)}%\u6CD5\u5F3A)` : v.hpRatio && !v.shield ? `(+${Math.round(v.hpRatio * 100)}%\u751F\u547D)` : "";
     parts.push(`\u9020\u6210 ${Array.isArray(v.damage) ? v.damage.join("/") : v.damage}${ratio} \u70B9${kind}\u4F24\u5BB3`);
@@ -8373,7 +8466,7 @@ function skillNumbers(h, s) {
   if (v.shield) parts.push(`\u83B7\u5F97 ${Array.isArray(v.shield) ? v.shield.join("/") : v.shield}(+${Math.round((v.hpRatio || 0) * 100)}%\u751F\u547D) \u62A4\u76FE\uFF0C\u6301\u7EED ${v.duration} \u79D2`);
   if (v.slow) parts.push(`\u51CF\u901F ${Math.round(v.slow * 100)}%${v.slowDur ? `\uFF0C\u6301\u7EED ${v.slowDur} \u79D2` : ""}`);
   if (v.knockup) parts.push(`\u51FB\u98DE ${v.knockup} \u79D2`);
-  if (v.asBonus) parts.push(`\u653B\u901F\u63D0\u9AD8 ${Math.round(v.asBonus * 100)}%\uFF0C\u6301\u7EED ${v.asDur} \u79D2`);
+  if (v.asBonus) parts.push(`\u653B\u901F\u63D0\u9AD8 ${span(v.asBonus.map((value) => Math.round(value * 100)))}%\uFF0C\u6301\u7EED ${v.asDur} \u79D2`);
   if (v.haste) parts.push(`\u79FB\u901F\u63D0\u9AD8 ${Math.round(v.haste * 100)}%\uFF0C\u6301\u7EED ${v.hasteDur} \u79D2`);
   if (v.reduction) parts.push(`\u671F\u95F4\u51CF\u4F24 ${Math.round(v.reduction * 100)}%`);
   return parts.join("\uFF0C") + (parts.length ? "\u3002" : "");
@@ -8413,7 +8506,7 @@ function renderSelected() {
     $("#hero-art").innerHTML = portraitSVG(h.id, { idPrefix: "stage", full: false });
   }
   const ratings = { tank: [5, 2, 2, 4], fighter: [4, 4, 3, 3], mage: [2, 5, 2, 4], marksman: [2, 5, 3, 2], assassin: [2, 5, 5, 3] }[h.id], st = h.stats;
-  $("#hero-detail").innerHTML = `<div class="detail-eyebrow"><span>\u5B9A\u4F4D <b class="role-tag">${escape(h.role)}</b></span><span>\u8DEF\u7EBF <b>${lanes[h.lane] || ""}</b></span><span><b>${h.attackType === "ranged" ? "\u8FDC\u7A0B" : "\u8FD1\u6218"}</b></span><span class="detail-stars">\u96BE\u5EA6 ${"\u2605".repeat(h.difficulty || 1)}${"\u2606".repeat(3 - (h.difficulty || 1))}</span></div><p class="hero-description">${escape(h.description)}</p><h4 class="detail-h">\u6280\u80FD</h4><div class="detail-skills">${h.skills.map((k, i) => `<button class="detail-skill ${i === detailSkill ? "selected" : ""}" data-detail-skill="${i}" aria-label="${escape(k.name)}">${iconSVG(skillIcons[h.id][i], { color: h.color })}<kbd>${k.key || ["Q", "E", "R"][i]}</kbd></button>`).join("")}<span class="detail-skill passive" title="\u88AB\u52A8\uFF1A${escape(h.passive?.name || "")}">${iconSVG("magic", { color: "#e7bd55" })}<kbd>\u88AB\u52A8</kbd></span><span class="detail-skill mini" title="\u95EA\u73B0">${iconSVG("flash", { color: "#ffe09a" })}</span><span class="detail-skill mini" title="\u6CBB\u7597">${iconSVG("heal", { color: "#a0eab4" })}</span></div><div class="skill-description"><h4>${escape(s.name)} <kbd>${s.key}</kbd> <em>${SLOT_NAMES[detailSkill]}</em></h4><div class="skill-tags">${skillTags(s).map((t) => `<i>${t}</i>`).join("")}</div><div class="skill-meta"><span>\u51B7\u5374 ${span(s.cooldowns || s.cooldown)} \u79D2</span><span>\u6D88\u8017 ${span(s.manaCosts || s.mana)}</span><span>\u8DDD\u79BB ${s.range} \u7C73</span></div><p>${escape(s.description)}${skillNumbers(h, s) ? "<br>" + escape(skillNumbers(h, s)) : ""}</p><p class="passive-line">\u88AB\u52A8 \xB7 ${escape(h.passive?.name || "")}</p></div><h4 class="detail-h">\u80FD\u529B</h4><div class="ability">${radarSVG(ratings, ["\u751F\u5B58", "\u8F93\u51FA", "\u673A\u52A8", "\u63A7\u5236"])}<div class="stat-grid"><span>\u751F\u547D<b>${st.hp}</b></span><span>\u6CD5\u529B<b>${st.mp}</b></span><span>\u7269\u653B<b>${st.ad}</b></span><span>\u653B\u901F<b>${st.attackSpeed.toFixed(2)}</b></span><span>\u62A4\u7532<b>${st.armor}</b></span><span>\u9B54\u6297<b>${st.mr}</b></span></div></div><p class="selection-note">2 \u7EA7\u89E3\u9501\u4E8C\u6280\u80FD \xB7 4 \u7EA7\u89E3\u9501\u5927\u62DB \xB7 \u6467\u6BC1\u4EFB\u610F\u4E00\u8DEF\u9AD8\u5730\u5854\u5373\u53EF\u8FDB\u653B\u654C\u65B9\u6C34\u6676\u3002</p>`;
+  $("#hero-detail").innerHTML = `<div class="detail-eyebrow"><span>\u5B9A\u4F4D <b class="role-tag">${escape(h.role)}</b></span><span>\u8DEF\u7EBF <b>${lanes[h.lane] || ""}</b></span><span><b>${h.attackType === "ranged" ? "\u8FDC\u7A0B" : "\u8FD1\u6218"}</b></span><span class="detail-stars">\u96BE\u5EA6 ${"\u2605".repeat(h.difficulty || 1)}${"\u2606".repeat(3 - (h.difficulty || 1))}</span></div><p class="hero-description">${escape(h.description)}</p><h4 class="detail-h">\u6280\u80FD</h4><div class="detail-skills">${h.skills.map((k, i) => `<button class="detail-skill ${i === detailSkill ? "selected" : ""}" data-detail-skill="${i}" aria-label="${escape(k.name)}">${iconSVG(skillDisplay[h.id][i][0], { color: h.color })}<kbd>${k.key || ["Q", "E", "R"][i]}</kbd></button>`).join("")}<span class="detail-skill passive" title="\u88AB\u52A8\uFF1A${escape(h.passive?.name || "")}">${iconSVG("magic", { color: "#e7bd55" })}<kbd>\u88AB\u52A8</kbd></span><span class="detail-skill mini" title="\u95EA\u73B0">${iconSVG("flash", { color: "#ffe09a" })}</span><span class="detail-skill mini" title="\u6CBB\u7597">${iconSVG("heal", { color: "#a0eab4" })}</span></div><div class="skill-description"><h4>${escape(s.name)} <kbd>${s.key}</kbd> <em>${SLOT_NAMES[detailSkill]}</em></h4><div class="skill-tags">${skillTags(s, skillDisplay[h.id][detailSkill][1]).map((t) => `<i>${t}</i>`).join("")}</div><div class="skill-meta"><span>\u51B7\u5374 ${span(s.cooldowns || s.cooldown)} \u79D2</span><span>\u6D88\u8017 ${span(s.manaCosts || s.mana)}</span><span>\u8DDD\u79BB ${s.range} \u7C73</span></div><p>${escape(s.description)}${skillNumbers(h, s) ? "<br>" + escape(skillNumbers(h, s)) : ""}</p><p class="passive-line">\u88AB\u52A8 \xB7 ${escape(h.passive?.name || "")}</p></div><h4 class="detail-h">\u80FD\u529B</h4><div class="ability">${radarSVG(ratings, ["\u751F\u5B58", "\u8F93\u51FA", "\u673A\u52A8", "\u63A7\u5236"])}<div class="stat-grid"><span>\u751F\u547D<b>${st.hp}</b></span><span>\u6CD5\u529B<b>${st.mp}</b></span><span>\u7269\u653B<b>${st.ad}</b></span><span>\u653B\u901F<b>${st.attackSpeed.toFixed(2)}</b></span><span>\u62A4\u7532<b>${st.armor}</b></span><span>\u9B54\u6297<b>${st.mr}</b></span></div></div><p class="selection-note">2 \u7EA7\u89E3\u9501\u4E8C\u6280\u80FD \xB7 4 \u7EA7\u89E3\u9501\u5927\u62DB \xB7 \u6467\u6BC1\u4EFB\u610F\u4E00\u8DEF\u9AD8\u5730\u5854\u5373\u53EF\u8FDB\u653B\u654C\u65B9\u6C34\u6676\u3002</p>`;
   $$("[data-detail-skill]").forEach((btn) => btn.addEventListener("click", () => {
     detailSkill = Number(btn.dataset.detailSkill);
     clickSound();
@@ -8430,9 +8523,21 @@ function cycleHero(step) {
 }
 $("#hero-prev").addEventListener("click", () => cycleHero(-1));
 $("#hero-next").addEventListener("click", () => cycleHero(1));
-$("#start").addEventListener("click", () => {
+var appRoot = $("#app");
+var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+$("#ios-hint").hidden = !isIOS || matchMedia("(display-mode: standalone)").matches;
+$("#portrait-start").addEventListener("click", () => {
   clickSound();
   heroSelect();
+});
+$("#start").addEventListener("click", () => {
+  clickSound();
+  const mobile = navigator.maxTouchPoints > 0 || matchMedia("(orientation: portrait)").matches;
+  const pending = enterLandscape(appRoot, window.screen.orientation, mobile);
+  heroSelect();
+  pending.then((locked) => {
+    if (mobile && !locked) notify("\u8BF7\u65CB\u8F6C\u624B\u673A\u6A2A\u5C4F\u6E38\u73A9");
+  });
 });
 $("#back-home").addEventListener("click", () => {
   clickSound();
@@ -8517,11 +8622,20 @@ function setupPlayerUI() {
   const h = getHero(world.player.heroId);
   $("#player-portrait").innerHTML = portrait(h.id);
   $("#player-name").textContent = h.name;
+  const movementSlot = skillDisplay[h.id][0][1] === "\u4F4D\u79FB" ? 0 : 1;
   $$(".sk-skill[data-skill]").forEach((btn) => {
-    const i = Number(btn.dataset.skill);
-    btn.querySelector(".skill-art").innerHTML = iconSVG(skillIcons[h.id][i], { color: "#fff3d0" });
-    btn.setAttribute("aria-label", `${h.skills[i].name}\uFF08${h.skills[i].key}\uFF09`);
-    btn.title = `${h.skills[i].name}\uFF1A${h.skills[i].description}`;
+    const slot = Number(btn.dataset.skill);
+    const [icon, label] = skillDisplay[h.id][slot];
+    const skill = h.skills[slot];
+    btn.querySelector("small").textContent = label;
+    if (slot < 2) {
+      btn.style.gridArea = slot === movementSlot ? "move" : "burst";
+      btn.classList.toggle("sk-move", slot === movementSlot);
+      btn.classList.toggle("sk-burst", slot !== movementSlot);
+    }
+    btn.querySelector(".skill-art").innerHTML = iconSVG(icon, { color: "#fff3d0" });
+    btn.setAttribute("aria-label", `${skill.name}\uFF08${skill.key}\uFF09`);
+    btn.title = `${skill.name}\uFF1A${skill.description}`;
   });
   $("#inventory").innerHTML = Array.from({ length: 6 }, (_, i) => `<button data-inventory="${i}" aria-label="\u88C5\u5907\u680F ${i + 1}"></button>`).join("");
   $$("#inventory button").forEach((btn) => btn.addEventListener("click", () => {
@@ -8760,7 +8874,7 @@ function updateHUD() {
   $("#wave-time").textContent = waveCountdown(world);
   $("#objective-text").textContent = objectiveText(world);
   const gold = Math.floor(p.gold).toLocaleString("en-US");
-  $("#kda").textContent = `${p.kills} / ${p.deaths} / ${p.assists}`;
+  renderCombatRecord(p, $("#kda"), $("#cs"));
   $("#gold").textContent = gold;
   $("#bag-gold").textContent = gold;
   $("#card-gold").textContent = gold;
@@ -8962,17 +9076,17 @@ async function toggleBattleFullscreen() {
       await document.exitFullscreen();
       return;
     }
-    if (!battle.requestFullscreen) {
+    if (!canFullscreen(appRoot)) {
       notify("\u5F53\u524D\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u5168\u5C4F\u663E\u793A");
       return;
     }
-    await battle.requestFullscreen({ navigationUI: "hide" });
+    await appRoot.requestFullscreen();
   } catch {
     notify("\u5168\u5C4F\u8BF7\u6C42\u88AB\u6D4F\u89C8\u5668\u62D2\u7EDD");
   }
 }
 function syncFullscreenButton() {
-  const active = document.fullscreenElement === battle, button = $("#fullscreen-button");
+  const active = document.fullscreenElement === appRoot, button = $("#fullscreen-button");
   button.setAttribute("aria-pressed", String(active));
   button.setAttribute("aria-label", active ? "\u9000\u51FA\u5168\u5C4F" : "\u5207\u6362\u5168\u5C4F");
   button.title = active ? "\u9000\u51FA\u5168\u5C4F\uFF08Esc\uFF09" : "\u5207\u6362\u5168\u5C4F";
@@ -9052,7 +9166,6 @@ function updateShopMoney() {
   $("#buy-item").disabled = sameBoot || full || world.player.gold < price;
   $("#buy-item").textContent = sameBoot ? "\u5DF2\u88C5\u5907\u978B\u7C7B" : full ? "\u88C5\u5907\u680F\u5DF2\u6EE1" : world.player.gold < price ? `\u8FD8\u5DEE ${Math.ceil(price - world.player.gold)}` : "\u8D2D\u4E70\u88C5\u5907";
 }
-$("#shop-button").addEventListener("click", openShop);
 $("#gold-chip").addEventListener("click", openShop);
 $("#shop-bag").addEventListener("click", openShop);
 function boardHTML() {
@@ -9120,9 +9233,9 @@ window.addEventListener("keydown", (e) => {
     if (key === "p" && modalType === "shop") closeModal();
     return;
   }
-  if (screen === "home" && key === "enter") {
-    clickSound();
-    heroSelect();
+  if (screen === "home" && key === "enter" && !e.target.closest("button,input")) {
+    e.preventDefault();
+    $("#start").click();
     return;
   }
   if (screen === "selection") {

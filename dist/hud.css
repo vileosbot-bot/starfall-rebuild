@@ -137,8 +137,8 @@
 .sk-flash .sk-face{background:radial-gradient(circle at 38% 28%,#3b3a22,#15140a)}
 .sk-heal .sk-face{background:radial-gradient(circle at 38% 28%,#58d06a,#1d7a33)}
 .sk-recall .sk-face{background:radial-gradient(circle at 38% 28%,#57a8f0,#1c4f9e)}
-.sk-e .sk-face{background:radial-gradient(circle at 38% 28%,#3fb9b0,#14595a)}
-.sk-q .sk-face{background:radial-gradient(circle at 38% 28%,#e0584a,#7a1a14)}
+.sk-move .sk-face{background:radial-gradient(circle at 38% 28%,#3fb9b0,#14595a)}
+.sk-burst .sk-face{background:radial-gradient(circle at 38% 28%,#e0584a,#7a1a14)}
 .sk-r .sk-face{width:calc(var(--sk) * 1.16);background:radial-gradient(circle at 38% 28%,#9a6ae6,#3a1f7a)}
 .sk-attack .sk-face{width:calc(var(--sk) * 1.62);border-width:3px;background:radial-gradient(circle at 38% 28%,#4a4226,#17130a)}
 .sk .cooldown{position:absolute;inset:0;display:grid;place-items:center;font-size:calc(var(--sk) * .5);font-weight:800;color:#fff;text-shadow:0 2px 4px #000;font-variant-numeric:tabular-nums;pointer-events:none}
@@ -168,7 +168,7 @@
 @media(max-height:530px){
   .sc-col{display:grid;grid-template-rows:repeat(3,auto);grid-auto-flow:column;column-gap:calc(var(--sk) * .16);align-items:end}
   .hero-card-hud{width:min(40vw,400px);min-width:230px;padding:5px 9px 5px 6px}.hc-side .inventory{display:none}.hc-bar{height:13px}.hc-stats{gap:7px;font-size:10px}
-  .objective{top:calc(max(8px,env(safe-area-inset-top)) + 58px);font-size:12px}.tutorial-pill,.kill-banner{top:calc(max(8px,env(safe-area-inset-top)) + 88px)}
+  .objective{top:calc(max(8px,env(safe-area-inset-top)) + 58px);font-size:12px}.tutorial-pill,.kill-banner{top:calc(max(8px,env(safe-area-inset-top)) + 94px)}
   .team-strip{display:none}.sb-team b{font-size:18px}.sb-clock b{font-size:16px}.sb-team{padding:3px 9px}
 }
 /* portrait phones: stack the hero card above the controls */
@@ -202,23 +202,55 @@
   .toast{top:calc(max(8px,env(safe-area-inset-top)) + 148px)}
 }
 
-/* Portrait: top row stays single-line; tutorial and hero card occupy separate bands. */
-@media(orientation:portrait){
-  .scorebar{left:50%;right:auto;transform:translateX(-50%)}
-  .hud-top-right{top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));gap:4px;max-width:calc(100vw - 16px)}
-  .hud-top-right .kda{display:none}
-  .hud-top-right .gold-chip{min-width:0;padding:4px 6px;gap:3px;font-size:12px}
-  .hud-top-right .gold-chip span{font-size:15px}
-  .hud-top-right .icon-button{width:34px;height:34px;font-size:16px}
-  .objective{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 10px);max-width:calc(100vw - 24px)}
-  .tutorial-pill{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 58px);left:16px;right:16px;transform:none;width:auto;max-width:none;max-height:min(28vh,330px);overflow:auto;flex-wrap:wrap;justify-content:flex-start;gap:6px 10px;padding:9px 12px;border-radius:14px}
-  .tutorial-pill span{flex:1 1 100%;line-height:1.55}
-  .tutorial-pill button{padding:5px 9px}
-  .tutorial-pill.touch strong{color:#9fe4f1}
-  .kill-banner{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 180px);max-width:calc(100vw - 28px);min-width:0;padding:5px 9px;gap:6px;font-size:13px}
-  .toast{top:calc(max(10px,env(safe-area-inset-top)) + clamp(110px,30vw,170px) + 248px)}
-  .hero-card-hud{bottom:calc(max(22px,env(safe-area-inset-bottom)) + var(--sk) * 6.9 + 32px);width:min(88vw,680px);min-width:0;left:50%;transform:translateX(-50%)}
+.start-options{display:grid;grid-template-columns:2fr 1fr;gap:8px}
+.start-options .start-button{font-size:clamp(16px,2.8vmin,25px);white-space:nowrap}
+.start-button small{margin-left:.4em;font-size:.5em}
+#ios-hint{display:block;margin-top:6px;text-align:center;color:#d2d9e8}
+
+/* The two wrappers preserve input bindings. Named cells keep the attack thumb free. */
+.skill-cluster{display:grid;grid-template-areas:". . flash" "heal ultimate move" "recall burst attack";grid-template-columns:var(--sk) calc(var(--sk)*1.2) calc(var(--sk)*1.62);align-items:end;justify-items:center;gap:4px 6px;pointer-events:none}
+.sc-col,.sc-main{display:contents}
+.skill-cluster button{pointer-events:auto}
+.sk-flash{grid-area:flash}.sk-heal{grid-area:heal}.sk-recall{grid-area:recall}
+.sk-e{grid-area:move}.sk-q{grid-area:burst}.sk-r{grid-area:ultimate}.sk-attack{grid-area:attack}
+.sk-flash .sk-face,.sk-heal .sk-face,.sk-recall .sk-face{width:calc(var(--sk)*.84)}
+.hud-top-right .kda{display:flex;flex-direction:row;align-items:center;gap:7px;padding:4px 7px;white-space:nowrap;letter-spacing:0;font-variant-numeric:tabular-nums}
+.kda span{display:inline-flex;gap:3px;align-items:center}
+.kda svg{width:1em;height:1em;color:#e2b861}
+.hc-stats{flex-wrap:wrap;overflow:visible;gap:1px 7px}
+@media(orientation:landscape) and (max-height:530px){
   .hc-side .inventory{display:grid}
-  .hc-side .inventory button{width:20px;height:20px}
-  .skill-cluster{right:max(10px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom))}
+  .hc-side .inventory button{width:17px;height:17px}
+  .hero-card-hud{width:min(44vw,440px);gap:6px}
+  .hc-stats strong{flex-basis:100%;font-size:11px}
+}
+@media(orientation:portrait){
+  .hud{--sk:clamp(35px,10vw,57px);--map:clamp(72px,21vw,145px);--top:max(6px,env(safe-area-inset-top));--edge:max(6px,env(safe-area-inset-right));--above-card:calc(max(7px,env(safe-area-inset-bottom)) + 77px)}
+  .mini-wrap{top:var(--top);left:max(6px,env(safe-area-inset-left));width:var(--map)}
+  .mini-tools{gap:2px}.mini-tools .bag-button{padding:1px 5px 1px 1px;height:27px;font-size:11px}.mini-tools .mini-follow{width:25px}
+  .scorebar{top:var(--top);left:auto;right:var(--edge);transform:none}
+  .sb-team{gap:3px;padding:1px 6px}.sb-team b,.sb-clock b{font-size:16px}.sb-clock{padding:1px 8px}
+  .hud-top-right{top:calc(var(--top) + 47px);right:var(--edge);gap:3px}
+  .hud-top-right .kda{padding:3px;font-size:11px;gap:4px}
+  .hud-top-right .icon-button{width:27px;height:27px;font-size:14px}.hud-top-right .icon-button small{display:none}
+  .hud-top-right .gold-chip{min-width:0;padding:3px 5px;font-size:11px;gap:2px}
+  .objective,.tutorial-pill{left:calc(max(6px,env(safe-area-inset-left)) + var(--map) + 8px);right:var(--edge);transform:none;width:auto;max-width:none;font-size:11px}
+  .objective{top:calc(var(--top) + 86px);gap:3px;padding:3px 5px;border-radius:6px;white-space:normal}
+  .objective span{padding:1px 4px;font-size:10px}.objective b{line-height:1.25}
+  .tutorial-pill{top:calc(var(--top) + 115px);display:grid;grid-template-columns:auto 1fr auto auto;gap:3px;padding:5px;border-radius:7px}
+  .tutorial-pill span{grid-column:1/-1;grid-row:2;line-height:1.3}
+  .tutorial-pill button{grid-row:1;font-size:10px;padding:3px 5px}
+  .killfeed{top:calc(var(--top) + 180px)}
+  .kill-banner{top:calc(var(--top) + 180px);max-width:95vw}
+  .toast{top:calc(var(--top) + 230px)}
+  .hero-card-hud{width:min(95vw,490px);min-width:0;bottom:max(4px,env(safe-area-inset-bottom));gap:7px;padding:4px 7px}
+  .hc-portrait{width:35px}.hc-stats{font-size:9px}.hc-stats strong{font-size:11px}.hc-side{gap:2px}.hc-side .inventory button{width:15px;height:15px}.hc-gold{font-size:10px}
+  .vstick{width:clamp(80px,24vw,140px);left:max(8px,env(safe-area-inset-left));bottom:var(--above-card)}
+  .skill-cluster{right:var(--edge);bottom:var(--above-card);gap:3px 4px}
+}
+.hc-gold,.hc-gold *{pointer-events:none}
+
+@media(orientation:portrait){
+  .tutorial-pill>b{grid-area:1/1}.tutorial-pill>strong{grid-area:1/2}
+  #tutorial-next{grid-area:1/3}#close-tutorial{grid-area:1/4}
 }
