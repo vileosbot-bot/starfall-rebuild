@@ -86,13 +86,14 @@ test('visual regression: title, hero select, 3D battlefield, HUD, minimap, death
     assert.ok(cluster.x + cluster.w > VIEW.width - 30 && cluster.y + cluster.h > VIEW.height - 20, 'skill cluster bottom-right');
     const sk = {}; for (const [k, s] of Object.entries({ attack: '#attack-button', ult: '.sk-skill[data-skill="2"]', flash: '#flash', heal: '#heal', recall: '#recall', move: '.sk-skill[data-skill="1"]', burst: '.sk-skill[data-skill="0"]' })) sk[k] = await box(s + ' .sk-face');
     assert.ok(Object.values(sk).every(b => b.w <= sk.attack.w) && sk.attack.w > sk.ult.w && sk.ult.w > sk.flash.w, 'attack is the largest button, then the ultimate');
-    assert.ok(sk.attack.cx > sk.flash.cx && sk.attack.cy > sk.ult.cy && Math.abs(sk.attack.cx - sk.ult.cx) < sk.attack.w * .5, 'ultimate sits above the attack button at the far right');
-    assert.ok(sk.flash.cy < sk.heal.cy && sk.heal.cy < sk.recall.cy && sk.recall.cy < sk.move.cy && sk.move.cy < sk.burst.cy, 'left column top to bottom: flash, heal, recall, dash, burst');
+    assert.ok(sk.flash.cx > sk.heal.cx && sk.flash.cy < sk.move.cy, 'flash is upper right');
+    assert.ok(Math.abs(sk.heal.cx - sk.recall.cx) < 2 && sk.heal.cy < sk.recall.cy, 'heal and recall share the left column');
+    assert.ok(sk.attack.cx > sk.burst.cx && sk.attack.cy > sk.move.cy && sk.attack.cy > sk.ult.cy, 'attack is bottom right, below dash and ultimate');
     assert.deepEqual(await page.evaluate(() => ['#flash', '#heal', '#recall', '.sk-skill[data-skill="1"]', '.sk-skill[data-skill="2"]', '.sk-skill[data-skill="0"]'].map(s => document.querySelector(s + ' small').textContent)), ['闪现', '治疗', '回城', '位移', '大招', '爆发']);
     const hud = await page.evaluate(() => ({ time: document.querySelector('#match-time').textContent, wave: document.querySelector('#wave-time').textContent, objective: document.querySelector('#objective').textContent, gold: document.querySelector('#gold').textContent, stats: document.querySelector('.hc-stats').textContent, hp: document.querySelector('#health-text').textContent,
       locked: [...document.querySelectorAll('.sk-skill')].map(b => [b.dataset.skill, b.classList.contains('locked'), getComputedStyle(b.querySelector('.sk-lock')).display]), border: getComputedStyle(document.querySelector('#flash .sk-face')).borderTopColor, round: getComputedStyle(document.querySelector('#flash .sk-face')).borderTopLeftRadius }));
     assert.equal(hud.time, '00:02'); assert.equal(hud.wave, '8秒'); assert.equal(hud.objective, '当前目标小兵 8 秒后出发，先去上路一塔等着');
-    assert.match(hud.gold, /^5\d$/, 'starts from 50 gold'); assert.match(hud.stats, /程咬金.*物攻 172.*护甲 104.*魔抗 55.*移速 5\.8/); assert.equal(hud.hp, '3450/3450');
+    assert.match(hud.gold, /^5\d$/, 'starts from 50 gold'); assert.match(hud.stats, /程咬金.*物攻 172.*护甲 104.*魔抗 55.*移速 6\.3/); assert.equal(hud.hp, '3450/3450');
     assert.deepEqual(hud.locked.sort(), [['0', false, 'none'], ['1', true, 'block'], ['2', true, 'block']], 'E and R show the padlock at level 1');
     assert.equal(hud.border, 'rgb(226, 182, 78)'); assert.equal(hud.round, '50%');
 

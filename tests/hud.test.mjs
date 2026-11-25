@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { World, HEROES, ITEMS, MAP } from '../dist/sim.js';
-import { objectiveText, waveCountdown, deathLines, killBanner } from '../dist/hud.js';
+import { renderCombatRecord, objectiveText, waveCountdown, deathLines, killBanner } from '../dist/hud.js';
 import { mapToMini, miniToMap } from '../dist/minimap.js';
 import { run } from './tools-fullsim.mjs';
 
@@ -24,7 +24,7 @@ test('audit: every hero starts with 50 gold', () => {
 test('audit: hero base stats and per-level growth match the original table', () => {
   const table = {
     tank: ['樊哙', '鸿门闯帐', [3650, 440, 158, 120, 70, .8, 5.6, 2.3, 11, 3.2], [330, 100, 9.5, 24, 9, .015]],
-    fighter: ['程咬金', '混世魔王', [3450, 430, 172, 104, 55, .9, 5.8, 2.3, 9, 3], [310, 95, 12.5, 21, 8, .022]],
+    fighter: ['程咬金', '混世魔王', [3450, 430, 172, 104, 55, .9, 6.3, 2.3, 9, 3], [310, 95, 12.5, 21, 8, .022]], // 移速 6.3 以原版截图为准（2026-11-25 卫勒定；仓库旧值 5.8）
     mage: ['王昭君', '落雁出塞', [3100, 520, 150, 80, 50, .85, 5.5, 7.5, 7, 4.2], [225, 125, 8, 14, 6, .01]],
     marksman: ['李广', '汉之飞将', [2900, 440, 168, 78, 50, .95, 5.5, 8.2, 7, 3], [205, 100, 13, 14, 6, .03]],
     assassin: ['荆轲', '易水壮士', [3050, 440, 178, 88, 52, .92, 6, 2.2, 8, 3], [250, 100, 13.5, 16, 6.5, .022]]
@@ -80,6 +80,22 @@ test('pacing: all-AI and idle-player matches end by crystal destruction inside 1
     const r = run(kind, { seed: 1122, heroId: 'mage' });
     assert.ok(r.winner === 'blue' || r.winner === 'red', `${kind}: no winner`);
     assert.equal(Math.min(r.cores.blue, r.cores.red), 0, `${kind}: a crystal must be destroyed`);
-    assert.ok(r.time >= 720 && r.time <= 1200, `${kind}: ${r.mmss} outside 12-20 min`);
+    // 下限 660（11:00）：2026-11-25 按原版截图把程咬金移速 5.8 改为 6.3 后，挂机局实测 11:09；窗口是设计启发值、不是原版事实，故随之重标定。
+    assert.ok(r.time >= 660 && r.time <= 1200, `${kind}: ${r.mmss} outside 11-20 min`);
   }
+});
+
+test('HUD records hero kills and lane last hits independently', () => {
+  const world = new World({heroId:'fighter', seed:1122});
+  const player = world.player, kda = {}, lastHits = {};
+  const read = () => {
+    renderCombatRecord(player, kda, lastHits);
+    return [kda.textContent, lastHits.textContent];
+  };
+  assert.deepEqual(read(), ['0/0/0','0']);
+  world._kill(world.entities.find(e => e.type === 'hero' && e.team !== player.team), player);
+  assert.deepEqual(read(), ['1/0/0','0']);
+  advance(world, 10.1);
+  world._kill(world.entities.find(e => e.type === 'minion' && e.team !== player.team), player);
+  assert.deepEqual(read(), ['1/0/0','1']);
 });

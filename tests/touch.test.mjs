@@ -99,3 +99,44 @@ test('multi-touch: joystick held + skill/flash/heal/recall taps work together', 
     await context.close();
   } finally { await browser.close(); await server.close(); }
 });
+
+test('HUD hit targets, live record and central play area in both orientations', async t => {
+  const {browser, skip} = await launch();
+  if (skip) return t.skip(skip);
+  const server = await serveDist();
+  try {
+    for (const [width,height] of [[390,844],[844,390],[1280,720]]) {
+      const {page,context} = await openGame(browser,server.url,{width,height,touch:true,query:'?renderer=2d'});
+      await page.locator('#tutorial-toggle').check();
+      await page.locator('#portrait-start').click();
+      await page.locator('#enter-match').click();
+      await page.locator('#tutorial').waitFor();
+      const bounds = await page.evaluate(() => {
+        const ids = ['#minimap','#scorebar','#wave-time','#kda','#cs','#gold-chip','#pause-button','#fullscreen-button','#scoreboard-button','#tutorial','#objective','#hero-card','#joystick','#flash','#heal','#recall','.sk-q','.sk-e','.sk-r','#attack-button'];
+        const els = ids.map(id => document.querySelector(id));
+        return els.map((el,i) => ({id: ids[i], ...el.getBoundingClientRect().toJSON(), ancestor: els.findIndex((o,j) => j !== i && o.contains(el))}));
+      });
+      for (const [i,a] of bounds.entries()) {
+        assert.ok(a.width > 0 && a.left >= 0 && a.top >= 0 && a.right <= width && a.bottom <= height, a.id);
+        for (const [j,b] of bounds.entries()) {
+          if (j <= i) continue;
+          if (a.ancestor === j || b.ancestor === i) continue; // nested label (e.g. #wave-time under #scorebar) is intentional, not a collision
+          assert.ok(a.right <= b.left+1 || b.right <= a.left+1 || a.bottom <= b.top+1 || b.bottom <= a.top+1, a.id+' overlaps '+b.id);
+        }
+      }
+      const gold = await page.locator('#card-gold').boundingBox();
+      const x = gold.x+gold.width/2, y = gold.y+gold.height/2;
+      const hit = await page.evaluate(([x,y]) => document.elementFromPoint(x,y).closest('button,canvas,.hc-gold')?.id ?? null,[x,y]);
+      assert.equal(hit,null);
+      await page.touchscreen.tap(x,y);
+      assert.equal(await page.locator('#overlay').isHidden(),true);
+      await page.evaluate(() => {
+        const w = window.__starfall.world;
+        w._kill(w.entities.find(e => e.type === 'hero' && e.team !== w.player.team),w.player);
+      });
+      await page.waitForFunction(() => document.querySelector('#kda').textContent === '1/0/0');
+      assert.equal(await page.locator('#cs').textContent(),'0');
+      await context.close();
+    }
+  } finally { await browser.close(); await server.close(); }
+});

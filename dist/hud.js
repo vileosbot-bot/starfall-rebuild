@@ -65,3 +65,8 @@ export function killBanner(world, e) {
   const text = victim.id === p.id ? (killer ? `敌方${killer.name} 击杀了你` : '你已阵亡') : killer?.id === p.id ? `你 击杀了 敌方${victim.name}` : killer ? `${side(killer.team)}${killer.name} 击杀了 ${side(victim.team)}${victim.name}` : `${side(victim.team)}${victim.name} 阵亡`;
   return { text, tone: mine ? 'ally' : 'enemy', first: !!e.firstBlood, killerHeroId: killer?.heroId || null, victimHeroId: victim.heroId || null };
 }
+
+export function renderCombatRecord(player, kda, lastHits) {
+  kda.textContent = `${player.kills}/${player.deaths}/${player.assists}`;
+  lastHits.textContent = String(player.cs);
+}

@@ -63,15 +63,31 @@ function plate(geo, pts, thick, m) {
   geo.at(M.chain(m, M.rotX(-Math.PI / 2))).prism(pts.map(p => [p[0], p[1]]), -thick / 2, thick / 2).at(null);
 }
 
+// Colour adjacent facets of an existing band at build time. Vertex positions,
+// triangle counts and animated groups are preserved.
+function inlayBand(mesh, band, highlight, facets, build) {
+  const start = mesh.n;
+  build(mesh.color(band));
+  const stride = (mesh.n - start) / facets;
+  const rgb = hex(highlight).slice(0, 3);
+  for (let facet = 0; facet < facets; facet += 2) {
+    for (let i = start + facet * stride; i < start + (facet + 1) * stride; i += 10) {
+      mesh.buf.set(rgb, i + 6);
+    }
+  }
+}
+
 // ---- heroes ----------------------------------------------------------------
 function fighter() { // 程咬金: red cape, crested helmet, plate armour, great two-handed axe
   const g = newGroups(), gold = '#e0a63c', iron = '#4a4650', red = '#cf2f22';
   body(g, { skin: '#f2c391', torso: gold, torso2: iron, belt: '#7a2a1c', chest: '#f1c257', arm: iron, glove: '#7a4a2a', leg: '#5a3a2a', boot: iron, shoulder: gold, bulk: 1.06 });
   for (let i = 0; i < 4; i++) g.body.color(i % 2 ? gold : '#b9822c').at(M.chain(M.rotY(i * TAU / 4 + TAU / 8), M.translate(0, .3, .36))).box(.3, .26, .06).at(null); // tassets
+  g.body.color('#9d4d25').quad([-.18,1.00,.354],[0,.89,.397],[.18,1.00,.354],[0,.82,.397]);
   head(g, { skin: '#f2c391', cheek: '#e79a7b' });
-  helmet(g, iron, gold, .5);
-  g.head.color('#3a2a22').sphere(.2, .13, .1, 0, HEAD_Y - .23, .3, 8, 4); // beard
-  g.head.color(gold).cyl(.05, .07, .16, 6, 0, HEAD_Y + .44, 0);
+  helmet(g, iron, null, .5);
+  inlayBand(g.head, gold, '#ffdc79', 12, band => band.cyl(.48, .46, .10, 12, 0, HEAD_Y + .045, 0, { caps: false }));
+  g.head.color('#3a2a22').sphere(.2, .13, .1, 0, HEAD_Y - .23, .3, 7, 4); // beard
+  inlayBand(g.head, gold, '#fff0a8', 6, band => band.cyl(.09, .07, .16, 6, 0, HEAD_Y + .44, 0));
   g.head.color(red).sphere(.1, .2, .26, 0, HEAD_Y + .66, -.1, 8, 6).sphere(.07, .12, .2, 0, HEAD_Y + .5, -.36, 6, 4); // plume
   cape(g, red, '#8f1f18');
   const h = hand(1), m = M.chain(M.translate(h[0], h[1], h[2]), M.rotX(.95));
@@ -87,14 +103,18 @@ function tank() { // 樊哙: heavy steel, tower shield, short mace
   const g = newGroups(), steel = '#74808e', dark = '#48525e', gold = '#d9a441', brown = '#7a4e30';
   body(g, { skin: '#e9b98c', torso: steel, torso2: dark, belt: brown, chest: '#8c98a6', arm: dark, glove: brown, leg: '#4a3a30', boot: dark, shoulder: steel, bulk: 1.16 });
   head(g, { skin: '#e9b98c' });
-  helmet(g, steel, gold, .56);
+  helmet(g, steel, null, .56);
+  inlayBand(g.head, gold, '#f9d888', 12, band => band.cyl(.48, .46, .09, 12, 0, HEAD_Y + .045, 0, { caps: false }));
   g.head.color(dark).box(.1, .3, .08, 0, HEAD_Y - .12, .4); // nose guard
   for (const s of [-1, 1]) g.head.color('#e8e0cc').at(M.chain(M.translate(s * .42, HEAD_Y + .2, 0), M.rotZ(-s * .9))).cyl(.07, 0, .34, 6).at(null); // horns
-  g.head.color('#4a3324').sphere(.24, .16, .12, 0, HEAD_Y - .25, .28, 8, 4);
+  g.head.color('#4a3324').sphere(.24, .16, .12, 0, HEAD_Y - .25, .28, 7, 4);
   cape(g, brown, '#5a3822', .8, .9);
   const hl = hand(-1), sm = M.chain(M.translate(hl[0] - .12, hl[1] + .12, hl[2] + .2), M.rotY(-.25));
   g.armL.color(steel).at(sm).box(.78, 1.05, .09, 0, -.5, 0).color(gold).box(.84, .1, .11, 0, .5, 0).box(.84, .1, .11, 0, -.52, 0).box(.1, 1.05, .11, -.38, -.5, 0).box(.1, 1.05, .11, .38, -.5, 0)
     .at(M.chain(sm, M.translate(0, 0, .06), M.rotX(Math.PI / 2))).cyl(.2, .1, .1, 8).at(null);
+  for (const side of [-1,1]) {
+    g.armL.color('#314256').at(sm).quad([0,.28,.052],[side*.29,.38,.052],[side*.24,.25,.052],[0,.13,.052]).at(null);
+  }
   const hr = hand(1), wm = M.chain(M.translate(hr[0], hr[1], hr[2]), M.rotX(.8));
   g.armR.color('#5d4630').at(wm).cyl(.05, .05, 1.0, 6, 0, -.2, 0).color(dark).cyl(.2, .2, .34, 8, 0, .72, 0).color(gold).cyl(.22, .22, .06, 8, 0, .86, 0).at(null);
   return { groups: g, pivots: PIVOTS, height: 2.4, style: { attack: 'swing', armBase: -.4, shield: true } };
@@ -102,24 +122,29 @@ function tank() { // 樊哙: heavy steel, tower shield, short mace
 function mage() { // 王昭君: indigo robe, long hair, pipa with a glowing string bridge
   const g = newGroups(), indigo = '#4353b4', cream = '#f6f0e6', red = '#c8324a';
   body(g, { skin: '#fbe0cf', torso: cream, torso2: indigo, belt: red, arm: indigo, leg: cream, boot: indigo, robe: indigo, bulk: .92 });
-  g.body.color('#8fb7ff').cyl(.58, .56, .05, 12, 0, .04, 0, { caps: false });
+  inlayBand(g.body, '#7d9fe4', '#e6edff', 12, hem => hem.cyl(.58, .54, .11, 12, 0, .04, 0, { caps: false }));
   head(g, { skin: '#fbe0cf', cheek: '#f4a9a9' });
   g.head.color('#231c2c').sphere(HEAD_R + .05, HEAD_R + .05, HEAD_R + .05, 0, HEAD_Y + .02, -.03, 12, 6, 0, .5); // hair cap
   g.head.sphere(.3, .62, .16, 0, HEAD_Y - .5, -.36, 8, 6).sphere(.17, .17, .17, 0, HEAD_Y + .5, -.05, 8, 5); // long hair, bun
   g.head.color(red).sphere(.07, .07, .07, .2, HEAD_Y + .42, .12, 6, 4).color('#f3d27a').cyl(.02, .02, .5, 5, -.25, HEAD_Y + .35, -.05);
   cape(g, cream, '#c9d6f5', .8, 1.0);
   const h = hand(-1), m = M.chain(M.translate(h[0] + .2, h[1] + .25, h[2] + .26), M.rotZ(-.5), M.rotX(.15));
-  g.armL.color('#a66a3a').at(m).sphere(.24, .32, .09, 0, 0, 0, 10, 6).color('#6f4324').cyl(.045, .04, .6, 6, 0, .25, 0).color('#f3d27a').box(.2, .05, .06, 0, .82, 0)
+  g.armL.color('#a66a3a').at(m).sphere(.24, .32, .09, 0, 0, 0, 9, 6).color('#6f4324').cyl(.045, .04, .6, 6, 0, .25, 0).color('#f3d27a').box(.2, .05, .06, 0, .82, 0)
     .color(hex('#bfe4ff', .9)).box(.16, .03, .03, 0, -.08, .09).at(null);
+  for (const x of [-.046,0,.046]) {
+    g.armL.color('#ffe4ab').at(m).quad([x-.005,-.07,.097],[x+.005,-.07,.097],[x*.55+.005,.79,.048],[x*.55-.005,.79,.048]).at(null);
+  }
   return { groups: g, pivots: PIVOTS, height: 2.3, style: { attack: 'cast', armBase: -.9, armLBase: -.75 } };
 }
 function marksman() { // 李广: teal coat, cream trousers, long bow and quiver
   const g = newGroups(), teal = '#2f8f8a', cream = '#e9e2cf', gold = '#c99a45', leather = '#7b5433';
   body(g, { skin: '#f0c79c', torso: teal, torso2: leather, belt: gold, chest: '#3aa39c', arm: teal, glove: leather, leg: cream, boot: leather, shoulder: leather });
+  g.body.color(leather).quad([-.26,1.09,.26],[-.19,1.11,.30],[.07,.83,.389],[.01,.80,.389])
+    .quad([.01,.80,.389],[.07,.83,.389],[.28,.60,.25],[.23,.56,.27]);
   head(g, { skin: '#f0c79c' });
   g.head.color('#2b2422').sphere(HEAD_R + .04, HEAD_R + .04, HEAD_R + .04, 0, HEAD_Y + .02, -.02, 12, 6, 0, .47);
-  g.head.color(gold).cyl(HEAD_R + .05, HEAD_R + .05, .08, 12, 0, HEAD_Y + .1, 0, { caps: false });
-  g.head.color('#2b2422').sphere(.12, .12, .12, 0, HEAD_Y + .5, -.08, 6, 4).color('#eaf7f0').at(M.chain(M.translate(.1, HEAD_Y + .52, -.1), M.rotZ(-.5))).cyl(.03, 0, .4, 5).at(null); // topknot + feather
+  inlayBand(g.head, gold, '#f2e7bf', 12, band => band.cyl(.47, .46, .10, 12, 0, HEAD_Y + .1, 0, { caps: false }));
+  g.head.color('#2b2422').sphere(.12, .12, .12, 0, HEAD_Y + .5, -.08, 5, 4).color('#eaf7f0').at(M.chain(M.translate(.1, HEAD_Y + .52, -.1), M.rotZ(-.5))).cyl(.03, 0, .4, 5).at(null); // topknot + feather
   g.body.color(leather).at(M.chain(M.translate(.22, .75, -.36), M.rotZ(.35))).cyl(.11, .12, .62, 8).color('#eaf7f0').cyl(.09, .02, .16, 6, 0, .62, 0).at(null); // quiver
   cape(g, teal, '#1f5f5c', .7, .8);
   const h = hand(-1), m = M.chain(M.translate(h[0], h[1], h[2] + .08));
@@ -135,10 +160,11 @@ function assassin() { // 荆轲: black garb, white hair and scarf, twin daggers
   const g = newGroups(), black = '#2a2538', violet = '#4a3e6e', white = '#ece8de', glow = '#b48cff';
   body(g, { skin: '#f1d2b6', torso: black, torso2: violet, belt: glow, arm: black, glove: violet, leg: black, boot: '#1c1926', shoulder: violet, bulk: .95 });
   head(g, { skin: '#f1d2b6' });
-  g.head.color(white).sphere(HEAD_R + .05, HEAD_R + .06, HEAD_R + .05, 0, HEAD_Y + .02, -.03, 12, 6, 0, .5);
+  g.head.color(white).sphere(HEAD_R + .05, HEAD_R + .06, HEAD_R + .05, 0, HEAD_Y + .02, -.03, 12, 5, 0, .5);
   for (let i = 0; i < 5; i++) g.head.at(M.chain(M.translate(0, HEAD_Y + .2, 0), M.rotY(i * 1.1 + 2.2), M.rotX(1.9))).cyl(.14, 0, .5, 5).at(null); // spiky hair
   g.head.color(black).cyl(HEAD_R + .02, HEAD_R + .02, .16, 12, 0, HEAD_Y - .3, 0, { caps: false }); // mask
-  g.body.color(white).cyl(.3, .36, .14, 10, 0, 1.14, 0);
+  inlayBand(g.body, white, '#ada3cb', 10, scarf => scarf.cyl(.33, .38, .17, 10, 0, 1.12, 0));
+  g.body.color('#87789c').quad([-.23,1.10,.20],[-.18,1.13,.24],[.21,.66,.25],[.16,.63,.27]);
   cape(g, white, '#c9c2d8', .5, .95);
   for (const s of [-1, 1]) {
     const h = hand(s), m = M.chain(M.translate(h[0], h[1], h[2]), M.rotX(1.45)), arm = s < 0 ? g.armL : g.armR;

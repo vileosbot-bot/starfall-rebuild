@@ -217,7 +217,7 @@ export const HEROES = [
       "armor": 104,
       "mr": 55,
       "attackSpeed": 0.9,
-      "speed": 5.8,
+      "speed": 6.3,
       "range": 2.3,
       "hpRegen": 9,
       "manaRegen": 3

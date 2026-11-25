@@ -1,4 +1,5 @@
 import { HEROES, ITEMS, MAP, World } from './sim.js';
+import { canFullscreen, enterLandscape } from './display.js';
 import { Renderer } from './render.js';
 import { Renderer3D, HeroStage, webgl2Available } from './render3d.js';
 import { drawMinimap, miniToMap } from './minimap.js';
@@ -6,7 +7,7 @@ import { portraitSVG, portraitURL, iconSVG } from './portraits.js';
 import { GameAudio } from './audio.js';
 import { pickEntityAt, nearestAimTarget } from './controls.js';
 import { createJoystick, bindPress } from './touch.js';
-import { objectiveText, waveCountdown, deathLines, killBanner } from './hud.js';
+import { renderCombatRecord, objectiveText, waveCountdown, deathLines, killBanner } from './hud.js';
 
 
 const $ = (s) => document.querySelector(s);
@@ -16,7 +17,14 @@ const clamp = (x,a,b) => Math.max(a,Math.min(b,x));
 const fmt = n => {const t=Math.max(0,Math.floor(n));return `${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`;};
 const getHero = id => HEROES.find(h=>h.id===id) || HEROES[0];
 const getItem = id => ITEMS.find(i=>i.id===id);
-const skillIcons = {tank:['shield','armor','tower'],fighter:['axe','attack','flame'],mage:['wave','snow','magic'],marksman:['bow','crosshair','spear'],assassin:['dagger','attack','cloak']};
+// Entries follow World._cast slot order (Q, E, R).
+const skillDisplay = {
+  fighter: [['axe','爆发'], ['dash','位移'], ['spin','大招']],
+  tank: [['dash','位移'], ['shield','护盾'], ['impact','大招']],
+  mage: [['wave','音波'], ['pull','聚敌'], ['chord','大招']],
+  marksman: [['bow','重箭'], ['dash','位移'], ['volley','大招']],
+  assassin: [['dash','位移'], ['fan','飞匕'], ['dagger','大招']]
+};
 const lanes = {top:'上路',mid:'中路',bot:'下路',jungle:'打野'};
 const storage = {read(key,fallback){try{const v=JSON.parse(localStorage.getItem(key));return v ?? fallback;}catch{return fallback;}},write(key,v){try{localStorage.setItem(key,JSON.stringify(v));}catch{}}};
 const saved = storage.read('sf-rebuild-settings',{});
@@ -57,19 +65,19 @@ function renderRoster(){
   $$('#roster button').forEach(btn=>btn.addEventListener('click',()=>{selectedHero=btn.dataset.hero;detailSkill=0;clickSound();renderRoster();renderSelected();}));
 }
 const SLOT_NAMES=['一技能','二技能','大招'];
-function skillTags(s){
+function skillTags(s,label){
   const v=s.values||{},tags=[];
-  if(v.damage)tags.push(s.key==='R'?'大招':'爆发');if(v.dashSpeed||v.leapTime)tags.push('位移');if(v.slow)tags.push('减速');if(v.knockup||v.stun)tags.push('控制');if(v.shield)tags.push('护盾');if(v.haste||v.asBonus)tags.push('加速');if(v.reduction)tags.push('减伤');
+  tags.push(label);if(label!=='位移' && (v.dashSpeed||v.leapTime||v.vanish))tags.push('位移');if(v.slow)tags.push('减速');if(v.knockup||v.stun)tags.push('控制');if(v.shield&&label!=='护盾')tags.push('护盾');if(v.haste||v.asBonus)tags.push('加速');if(v.reduction)tags.push('减伤');
   tags.push({cone:'面前一片扇形',direction:'直线方向',position:'指定区域',self:'身边一圈',target:'指定敌方英雄'}[s.castType]||'');
   return tags.filter(Boolean);
 }
 const span=a=>Array.isArray(a)?(a[0]===a[a.length-1]?`${a[0]}`:`${a[0]}~${a[a.length-1]}`):`${a}`;
 function skillNumbers(h,s){
-  const v=s.values||{},parts=[],kind=h.damageType==='magic'?'法术':'物理';
+  const v=s.values||{},parts=[],kind=(h.id==='tank' && s===h.skills[1]) || h.damageType==='magic'?'法术':'物理';
   if(v.damage){const ratio=v.adRatio?`(+${Math.round(v.adRatio*100)}%物攻)`:v.apRatio?`(+${Math.round(v.apRatio*100)}%法强)`:v.hpRatio&&!v.shield?`(+${Math.round(v.hpRatio*100)}%生命)`:'';parts.push(`造成 ${Array.isArray(v.damage)?v.damage.join('/'):v.damage}${ratio} 点${kind}伤害`);}
   if(v.shield)parts.push(`获得 ${Array.isArray(v.shield)?v.shield.join('/'):v.shield}(+${Math.round((v.hpRatio||0)*100)}%生命) 护盾，持续 ${v.duration} 秒`);
   if(v.slow)parts.push(`减速 ${Math.round(v.slow*100)}%${v.slowDur?`，持续 ${v.slowDur} 秒`:''}`);
-  if(v.knockup)parts.push(`击飞 ${v.knockup} 秒`);if(v.asBonus)parts.push(`攻速提高 ${Math.round(v.asBonus*100)}%，持续 ${v.asDur} 秒`);
+  if(v.knockup)parts.push(`击飞 ${v.knockup} 秒`);if(v.asBonus)parts.push(`攻速提高 ${span(v.asBonus.map(value=>Math.round(value*100)))}%，持续 ${v.asDur} 秒`);
   if(v.haste)parts.push(`移速提高 ${Math.round(v.haste*100)}%，持续 ${v.hasteDur} 秒`);if(v.reduction)parts.push(`期间减伤 ${Math.round(v.reduction*100)}%`);
   return parts.join('，')+(parts.length?'。':'');
 }
@@ -85,12 +93,24 @@ function renderSelected(){
   if(heroStage){heroStage.setHero(h.id);$('#hero-art').hidden=true;$('#hero-stage-canvas').hidden=false;}
   else{$('#hero-stage-canvas').hidden=true;$('#hero-art').hidden=false;$('#hero-art').innerHTML=portraitSVG(h.id,{idPrefix:'stage',full:false});}
   const ratings={tank:[5,2,2,4],fighter:[4,4,3,3],mage:[2,5,2,4],marksman:[2,5,3,2],assassin:[2,5,5,3]}[h.id],st=h.stats;
-  $('#hero-detail').innerHTML=`<div class="detail-eyebrow"><span>定位 <b class="role-tag">${escape(h.role)}</b></span><span>路线 <b>${lanes[h.lane]||''}</b></span><span><b>${h.attackType==='ranged'?'远程':'近战'}</b></span><span class="detail-stars">难度 ${'★'.repeat(h.difficulty||1)}${'☆'.repeat(3-(h.difficulty||1))}</span></div><p class="hero-description">${escape(h.description)}</p><h4 class="detail-h">技能</h4><div class="detail-skills">${h.skills.map((k,i)=>`<button class="detail-skill ${i===detailSkill?'selected':''}" data-detail-skill="${i}" aria-label="${escape(k.name)}">${iconSVG(skillIcons[h.id][i],{color:h.color})}<kbd>${k.key||['Q','E','R'][i]}</kbd></button>`).join('')}<span class="detail-skill passive" title="被动：${escape(h.passive?.name||'')}">${iconSVG('magic',{color:'#e7bd55'})}<kbd>被动</kbd></span><span class="detail-skill mini" title="闪现">${iconSVG('flash',{color:'#ffe09a'})}</span><span class="detail-skill mini" title="治疗">${iconSVG('heal',{color:'#a0eab4'})}</span></div><div class="skill-description"><h4>${escape(s.name)} <kbd>${s.key}</kbd> <em>${SLOT_NAMES[detailSkill]}</em></h4><div class="skill-tags">${skillTags(s).map(t=>`<i>${t}</i>`).join('')}</div><div class="skill-meta"><span>冷却 ${span(s.cooldowns||s.cooldown)} 秒</span><span>消耗 ${span(s.manaCosts||s.mana)}</span><span>距离 ${s.range} 米</span></div><p>${escape(s.description)}${skillNumbers(h,s)?'<br>'+escape(skillNumbers(h,s)):''}</p><p class="passive-line">被动 · ${escape(h.passive?.name||'')}</p></div><h4 class="detail-h">能力</h4><div class="ability">${radarSVG(ratings,['生存','输出','机动','控制'])}<div class="stat-grid"><span>生命<b>${st.hp}</b></span><span>法力<b>${st.mp}</b></span><span>物攻<b>${st.ad}</b></span><span>攻速<b>${st.attackSpeed.toFixed(2)}</b></span><span>护甲<b>${st.armor}</b></span><span>魔抗<b>${st.mr}</b></span></div></div><p class="selection-note">2 级解锁二技能 · 4 级解锁大招 · 摧毁任意一路高地塔即可进攻敌方水晶。</p>`;
+  $('#hero-detail').innerHTML=`<div class="detail-eyebrow"><span>定位 <b class="role-tag">${escape(h.role)}</b></span><span>路线 <b>${lanes[h.lane]||''}</b></span><span><b>${h.attackType==='ranged'?'远程':'近战'}</b></span><span class="detail-stars">难度 ${'★'.repeat(h.difficulty||1)}${'☆'.repeat(3-(h.difficulty||1))}</span></div><p class="hero-description">${escape(h.description)}</p><h4 class="detail-h">技能</h4><div class="detail-skills">${h.skills.map((k,i)=>`<button class="detail-skill ${i===detailSkill?'selected':''}" data-detail-skill="${i}" aria-label="${escape(k.name)}">${iconSVG(skillDisplay[h.id][i][0],{color:h.color})}<kbd>${k.key||['Q','E','R'][i]}</kbd></button>`).join('')}<span class="detail-skill passive" title="被动：${escape(h.passive?.name||'')}">${iconSVG('magic',{color:'#e7bd55'})}<kbd>被动</kbd></span><span class="detail-skill mini" title="闪现">${iconSVG('flash',{color:'#ffe09a'})}</span><span class="detail-skill mini" title="治疗">${iconSVG('heal',{color:'#a0eab4'})}</span></div><div class="skill-description"><h4>${escape(s.name)} <kbd>${s.key}</kbd> <em>${SLOT_NAMES[detailSkill]}</em></h4><div class="skill-tags">${skillTags(s,skillDisplay[h.id][detailSkill][1]).map(t=>`<i>${t}</i>`).join('')}</div><div class="skill-meta"><span>冷却 ${span(s.cooldowns||s.cooldown)} 秒</span><span>消耗 ${span(s.manaCosts||s.mana)}</span><span>距离 ${s.range} 米</span></div><p>${escape(s.description)}${skillNumbers(h,s)?'<br>'+escape(skillNumbers(h,s)):''}</p><p class="passive-line">被动 · ${escape(h.passive?.name||'')}</p></div><h4 class="detail-h">能力</h4><div class="ability">${radarSVG(ratings,['生存','输出','机动','控制'])}<div class="stat-grid"><span>生命<b>${st.hp}</b></span><span>法力<b>${st.mp}</b></span><span>物攻<b>${st.ad}</b></span><span>攻速<b>${st.attackSpeed.toFixed(2)}</b></span><span>护甲<b>${st.armor}</b></span><span>魔抗<b>${st.mr}</b></span></div></div><p class="selection-note">2 级解锁二技能 · 4 级解锁大招 · 摧毁任意一路高地塔即可进攻敌方水晶。</p>`;
   $$('[data-detail-skill]').forEach(btn=>btn.addEventListener('click',()=>{detailSkill=Number(btn.dataset.detailSkill);clickSound();renderSelected();}));
 }
 function cycleHero(step){const i=HEROES.findIndex(h=>h.id===selectedHero);selectedHero=HEROES[(i+step+HEROES.length)%HEROES.length].id;detailSkill=0;renderRoster();renderSelected();audio.play('ui');}
 $('#hero-prev').addEventListener('click',()=>cycleHero(-1));$('#hero-next').addEventListener('click',()=>cycleHero(1));
-$('#start').addEventListener('click',()=>{clickSound();heroSelect();});
+const appRoot = $('#app');
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+$('#ios-hint').hidden = !isIOS || matchMedia('(display-mode: standalone)').matches;
+$('#portrait-start').addEventListener('click', () => { clickSound(); heroSelect(); });
+$('#start').addEventListener('click', () => {
+  clickSound();
+  const mobile = navigator.maxTouchPoints > 0 || matchMedia('(orientation: portrait)').matches;
+  const pending = enterLandscape(appRoot, window.screen.orientation, mobile);
+  heroSelect();
+  pending.then(locked => {
+    if (mobile && !locked) notify('请旋转手机横屏游玩');
+  });
+});
 $('#back-home').addEventListener('click',()=>{clickSound();changeScreen('home');});
 const difficultyNames={easy:'简单',normal:'普通',hard:'困难'};
 $$('[data-difficulty]').forEach(btn=>btn.addEventListener('click',()=>{difficulty=btn.dataset.difficulty;clickSound();$$('[data-difficulty]').forEach(b=>b.setAttribute('aria-checked',String(b===btn)));$('#difficulty-description').textContent={easy:'对手更宽容，适合第一次来到星陨高原',normal:'均衡的对抗，适合熟悉 MOBA 的玩家',hard:'更果断的对手，需要更好的走位与配合'}[difficulty];}));
@@ -122,7 +142,21 @@ async function startMatch(options={}){
 $('#enter-match').addEventListener('click',()=>startMatch());
 function setupPlayerUI(){
   const h=getHero(world.player.heroId);$('#player-portrait').innerHTML=portrait(h.id);$('#player-name').textContent=h.name;
-  $$('.sk-skill[data-skill]').forEach(btn=>{const i=Number(btn.dataset.skill);btn.querySelector('.skill-art').innerHTML=iconSVG(skillIcons[h.id][i],{color:'#fff3d0'});btn.setAttribute('aria-label',`${h.skills[i].name}（${h.skills[i].key}）`);btn.title=`${h.skills[i].name}：${h.skills[i].description}`;});
+  const movementSlot = skillDisplay[h.id][0][1] === '位移' ? 0 : 1;
+  $$('.sk-skill[data-skill]').forEach(btn => {
+    const slot = Number(btn.dataset.skill);
+    const [icon, label] = skillDisplay[h.id][slot];
+    const skill = h.skills[slot];
+    btn.querySelector('small').textContent = label;
+    if (slot < 2) {
+      btn.style.gridArea = slot === movementSlot ? 'move' : 'burst';
+      btn.classList.toggle('sk-move', slot === movementSlot);
+      btn.classList.toggle('sk-burst', slot !== movementSlot);
+    }
+    btn.querySelector('.skill-art').innerHTML = iconSVG(icon, {color:'#fff3d0'});
+    btn.setAttribute('aria-label', `${skill.name}（${skill.key}）`);
+    btn.title = `${skill.name}：${skill.description}`;
+  });
   $('#inventory').innerHTML=Array.from({length:6},(_,i)=>`<button data-inventory="${i}" aria-label="装备栏 ${i+1}"></button>`).join('');
   $$('#inventory button').forEach(btn=>btn.addEventListener('click',()=>{const id=world.player.items[Number(btn.dataset.inventory)];if(id)shopItemId=id;openShop();}));
   const mates=world.entities.filter(e=>e.type==='hero'&&e.team===world.player.team&&!e.isPlayer);
@@ -219,7 +253,8 @@ function updateHUD(){
   $('#blue-score').textContent=world.score.blue;$('#red-score').textContent=world.score.red;$('#match-time').textContent=fmt(world.time);
   $('#wave-time').textContent=waveCountdown(world);$('#objective-text').textContent=objectiveText(world);
   const gold=Math.floor(p.gold).toLocaleString('en-US');
-  $('#kda').textContent=`${p.kills} / ${p.deaths} / ${p.assists}`;$('#gold').textContent=gold;$('#bag-gold').textContent=gold;$('#card-gold').textContent=gold;
+  renderCombatRecord(p, $('#kda'), $('#cs'));
+  $('#gold').textContent=gold;$('#bag-gold').textContent=gold;$('#card-gold').textContent=gold;
   $('#player-level').textContent=p.level;$('#stat-ad').textContent=Math.round(p.ad);$('#stat-armor').textContent=Math.round(p.armor);$('#stat-mr').textContent=Math.round(p.mr);$('#stat-speed').textContent=(Math.round(p.speed*10)/10).toFixed(1);
   $('#health-fill').style.width=`${clamp(p.hp/p.maxHp*100,0,100)}%`;$('#mana-fill').style.width=`${clamp(p.mp/p.maxMp*100,0,100)}%`;
   $('#health-text').textContent=`${Math.ceil(p.hp)}/${Math.ceil(p.maxHp)}`;$('#mana-text').textContent=`${Math.floor(p.mp)}/${Math.floor(p.maxMp)}`;
@@ -292,12 +327,12 @@ $('#pause-button').addEventListener('click',openSettings);
 async function toggleBattleFullscreen(){
   try{
     if(document.fullscreenElement){await document.exitFullscreen();return;}
-    if(!battle.requestFullscreen){notify('当前浏览器不支持全屏显示');return;}
-    await battle.requestFullscreen({navigationUI:'hide'});
+    if(!canFullscreen(appRoot)){notify('当前浏览器不支持全屏显示');return;}
+    await appRoot.requestFullscreen();
   }catch{notify('全屏请求被浏览器拒绝');}
 }
 function syncFullscreenButton(){
-  const active=document.fullscreenElement===battle,button=$('#fullscreen-button');
+  const active=document.fullscreenElement===appRoot,button=$('#fullscreen-button');
   button.setAttribute('aria-pressed',String(active));
   button.setAttribute('aria-label',active?'退出全屏':'切换全屏');
   button.title=active?'退出全屏（Esc）':'切换全屏';
@@ -327,7 +362,7 @@ function renderShop(){
   lastShopBalance=-1;updateShopMoney();
 }
 function updateShopMoney(){if(modalType!=='shop'||!world)return;lastShopBalance=Math.floor(world.player.gold);$('#shop-balance').textContent=`◈ ${lastShopBalance}`;const item=getItem(shopItemId);if(!item)return;const price=itemPrice(item),boot=world.player.items.map(getItem).find(i=>i?.category==='boots'),sameBoot=item.category==='boots'&&!!boot&&(boot.id===item.id||item.tier===1),full=world.player.items.length>=6&&!(item.category==='boots'&&boot);$('#item-price').textContent=`◈ ${price}`;$('#buy-item').disabled=sameBoot||full||world.player.gold<price;$('#buy-item').textContent=sameBoot?'已装备鞋类':full?'装备栏已满':world.player.gold<price?`还差 ${Math.ceil(price-world.player.gold)}`:'购买装备';}
-$('#shop-button').addEventListener('click',openShop);$('#gold-chip').addEventListener('click',openShop);$('#shop-bag').addEventListener('click',openShop);
+$('#gold-chip').addEventListener('click',openShop);$('#shop-bag').addEventListener('click',openShop);
 
 function boardHTML(){
   if(!world)return '';
@@ -357,7 +392,7 @@ window.addEventListener('keydown',e=>{
     if(screen==='battle')openSettings();else if(screen==='selection')changeScreen('home');return;
   }
   if(modalType){if(key==='p'&&modalType==='shop')closeModal();return;}
-  if(screen==='home'&&key==='enter'){clickSound();heroSelect();return;}
+  if(screen==='home'&&key==='enter'&&!e.target.closest('button,input')){e.preventDefault();$('#start').click();return;}
   if(screen==='selection'){
     if(key==='enter'){startMatch();return;}
     if(['arrowleft','arrowright','arrowup','arrowdown'].includes(key))cycleHero(['arrowleft','arrowup'].includes(key)?-1:1);return;
